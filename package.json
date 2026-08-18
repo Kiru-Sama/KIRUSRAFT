@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:web": "esbuild src/index.ts --bundle --format=esm --outfile=www/kirusraft.js",
+    "build:web": "esbuild src/index.ts --bundle --format=iife --outfile=www/kirusraft.js",
     "build": "npm run build:web",
     "serve": "npx serve www"
   },
