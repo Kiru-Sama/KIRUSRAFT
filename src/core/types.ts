@@ -62,7 +62,9 @@ export interface ChatRequest {
   model: string;
   apiKey: string;
   baseURL: string;
-  messages: { role: string; content: string }[];
+  messages?: { role: string; content: string }[];
+  /** Responses API 完整 input（工具循环回传 function_call/function_call_output 用） */
+  input?: Record<string, unknown>[];
   tools?: { type: string; name?: string; parameters?: unknown; max_uses?: number }[];
   maxTokens?: number;
 }
@@ -71,7 +73,7 @@ export interface ChatRequest {
 export interface ChatStreamHandlers {
   onTextDelta(text: string): void;
   onReasoningDelta(text: string): void;
-  onToolCall(call: { id: string; name: string; args: Record<string, unknown> }): void;
+  onToolCall(call: { id: string; name: string; args: Record<string, unknown>; rawArguments?: string }): void;
   onDone(): void;
   onError(error: Error): void;
 }

@@ -1,30 +1,40 @@
 /**
  * KIRUSRAFT 内核入口（v0.0.1）
- * Cordis 装配：上下文 + 插件挂载。
- * 加载顺序与失败隔离由 Cordis 生命周期管理。
+ * Cordis 装配：核心服务 + 插件挂载。
+ * 依赖顺序由 Cordis inject 声明自动推导，加载顺序无关紧要。
  */
 import { Context } from '@deepseek-ai/cordis';
+import * as CoreServices from './plugins/core-services';
+import * as ProviderDeepseek from './plugins/provider-deepseek';
+import * as ToolTime from './plugins/tool-time';
 import * as FallbackGui from './plugins/fallback-gui';
 import * as Deconstruction from './plugins/deconstruction';
 
 export interface BootstrapOptions {
   /** 挂载根节点 */
   root?: HTMLElement;
-  /** UI 插件选择 */
+  /** UI 插件选择（可选，默认无主题插件，兜底 GUI 保持现代简洁） */
   uiPlugin?: string;
 }
 
 export async function bootstrap(options: BootstrapOptions = {}): Promise<Context> {
   const ctx = new Context();
 
-  // 兜底 GUI：内核自带，永远挂载（保证有界面），保持极简中性样式
-  ctx.plugin(FallbackGui, { root: options.root });
+  // 内核服务（工具注册表 + 服务商注册表），最先挂载
+  await ctx.plugin(CoreServices);
 
-  // UI 插件：按配置选择挂载；默认不挂任何主题插件（兜底 GUI 纯净极简）
-  // deconstruction（APITOOL 解构风）等主题插件由 uiPlugin 显式指定时启用
-  const ui = options.uiPlugin;
-  if (ui === 'deconstruction') {
-    ctx.plugin(Deconstruction, { enabled: true });
+  // 服务商插件：DeepSeek 官方标准（Responses API）
+  await ctx.plugin(ProviderDeepseek);
+
+  // 工具插件：get_time_info（本地工具验证 agent 循环）
+  await ctx.plugin(ToolTime);
+
+  // 兜底 GUI：内核自带，永远挂载（保证有界面）
+  await ctx.plugin(FallbackGui, { root: options.root });
+
+  // UI 插件：显式指定才挂载（APITOOL 解构风等）
+  if (options.uiPlugin === 'deconstruction') {
+    await ctx.plugin(Deconstruction, { enabled: true });
   }
 
   return ctx;

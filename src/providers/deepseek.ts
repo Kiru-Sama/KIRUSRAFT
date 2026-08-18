@@ -1,12 +1,16 @@
 /**
- * DeepSeek Responses API 流式适配器（v0.0.1）
- * 基于已验证的方案：POST {baseURL}/responses + tools:[{type:'web_search'}]。
- * 纯 ECMAScript fetch，无 Node 依赖，QuickJS/浏览器/WebView 通用。
+ * DeepSeek Responses API provider（v0.0.1）
+ * 内核抽象层：实现 ChatProvider 契约，支持服务端 web_search 工具与 function 工具循环。
+ * 纯 ECMAScript fetch，无 Node 依赖。
  */
 import type { ChatRequest, ChatStreamHandlers } from '../core/types';
+import type { ChatProvider } from './types';
 
-/** 解析 SSE 行，返回事件对象 */
-function parseSseEvent(line: string): { event?: string; data: unknown } | null {
+/** Responses API input 项（支持 function_call / function_call_output 回传） */
+export type ResponsesInputItem = Record<string, unknown>;
+
+/** 解析 SSE 行 */
+function parseSseEvent(line: string): { data: unknown } | null {
   if (!line.startsWith('data:')) return null;
   const data = line.slice(5).trim();
   if (data === '[DONE]') return { data: null };
@@ -17,12 +21,21 @@ function parseSseEvent(line: string): { event?: string; data: unknown } | null {
   }
 }
 
-/** 发起流式聊天，通过回调分发增量 */
+/** 构造 Responses input：普通消息数组或完整 input（工具循环用） */
+function buildInput(request: ChatRequest): ResponsesInputItem[] {
+  if (request.input && request.input.length > 0) return request.input;
+  return (request.messages ?? []).map((m) => ({
+    role: m.role,
+    content: [{ type: 'input_text', text: m.content }],
+  }));
+}
+
+/** 发起流式聊天，分发增量；收集 function 工具调用 */
 export async function streamChat(request: ChatRequest, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void> {
   const endpoint = `${request.baseURL.replace(/\/+$/, '')}/responses`;
   const body: Record<string, unknown> = {
     model: request.model,
-    input: request.messages.map((m) => ({ role: m.role, content: [{ type: 'input_text', text: m.content }] })),
+    input: buildInput(request),
     stream: true,
     max_output_tokens: request.maxTokens ?? 4096,
   };
@@ -53,7 +66,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
       const parsed = await response.json();
       message = parsed.error?.message ?? parsed.message ?? message;
     } catch {
-      /* 忽略解析失败 */
+      /* 忽略 */
     }
     handlers.onError(new Error(`API 错误: ${message}`));
     return;
@@ -90,7 +103,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   }
 }
 
-/** 按 Responses 事件类型分发 */
+/** 事件分发 */
 function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
   if (typeof data !== 'object' || data === null) return;
   const record = data as Record<string, unknown>;
@@ -104,20 +117,42 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
       if (typeof record.delta === 'string') handlers.onReasoningDelta(record.delta);
       break;
     case 'response.function_call_arguments.done':
-      if (typeof record.name === 'string' && typeof record.arguments === 'string') {
+      // name/call_id 在 output_item.done 事件里，这里不处理
+      break;
+    case 'response.output_item.done': {
+      const item = record.item as Record<string, unknown> | undefined;
+      if (item && item.type === 'function_call' && typeof item.name === 'string') {
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(record.arguments);
+          if (typeof item.arguments === 'string' && item.arguments.length > 0) {
+            args = JSON.parse(item.arguments);
+          }
         } catch {
           /* 参数解析失败用空对象 */
         }
-        handlers.onToolCall({ id: String(record.call_id ?? ''), name: record.name, args });
+        handlers.onToolCall({
+          id: String(item.call_id ?? ''),
+          name: item.name,
+          args,
+          rawArguments: typeof item.arguments === 'string' ? item.arguments : undefined,
+        });
       }
       break;
+    }
     case 'response.completed':
-      handlers.onDone();
+      // 流结束会统一调 onDone，这里不重复触发
       break;
     default:
       break;
   }
 }
+
+/** DeepSeek 官方标准 provider */
+export const DeepSeekProvider: ChatProvider = {
+  id: 'deepseek',
+  displayName: 'DeepSeek 官方',
+  streamChat,
+  available() {
+    return true;
+  },
+};
