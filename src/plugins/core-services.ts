@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis';
 import { ToolsService } from '../core/tools';
 import { ProviderService } from '../providers/service';
 import { ConfigService } from '../core/config';
+import { StorageService } from '../core/storage';
 
 export const name = 'core-services';
 
@@ -14,4 +15,5 @@ export function apply(ctx: Context): void {
   new ToolsService(ctx);
   new ProviderService(ctx);
   new ConfigService(ctx);
+  new StorageService(ctx);
 }

@@ -10,7 +10,7 @@ import { logger } from '../core/logger';
 import type { Session, UIMessagePart, ProviderProfile } from '../core/types';
 
 export const name = 'fallback-gui';
-export const inject = ['providers', 'tools', 'config'];
+export const inject = ['providers', 'tools', 'config', 'storage'];
 
 export interface Config {
   /** 挂载根节点，缺省取 #app */
@@ -21,7 +21,7 @@ export function apply(ctx: Context, config: Config): void {
   const root = config.root ?? document.getElementById('app');
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
-  const session: Session = createSession();
+  let session: Session = createSession();
 
   // 注册 profile 配置分节（走配置中心，带设置表单渲染）
   ctx.config.register({
@@ -198,6 +198,26 @@ export function apply(ctx: Context, config: Config): void {
     return bubble;
   }
 
+  // 启动加载最近会话（IndexedDB 持久化，关 App 不丢）
+  void (async () => {
+    try {
+      const list = await ctx.storage.listConversations();
+      if (list.length > 0) {
+        session = list[0];
+        for (const m of session.node.messages) {
+          msgEl.appendChild(renderMessage(m.role, m.parts));
+        }
+        msgEl.scrollTop = msgEl.scrollHeight;
+        logger.info('gui', `已加载最近会话（${session.node.messages.length} 条消息）`);
+      } else {
+        await ctx.storage.saveConversation(session);
+        logger.info('gui', '新建会话已落盘');
+      }
+    } catch (error) {
+      logger.error('storage', `加载会话失败: ${String(error)}`);
+    }
+  })();
+
   async function send(text: string): Promise<void> {
     if (!text.trim()) return;
     // 每次发送都读最新配置（config.set 会替换对象，闭包引用会失效）
@@ -211,6 +231,7 @@ export function apply(ctx: Context, config: Config): void {
     logger.info('gui', `发送消息(${webSearchEl.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
     appendMessage(session, 'user', [{ type: 'text', text }]);
     msgEl.appendChild(renderMessage('user', [{ type: 'text', text }]));
+    void ctx.storage.saveConversation(session);
     inputEl.value = '';
     msgEl.scrollTop = msgEl.scrollHeight;
 
@@ -267,6 +288,7 @@ export function apply(ctx: Context, config: Config): void {
           sendEl.style.display = '';
           stopEl.style.display = 'none';
           abortCtrl = null;
+          void ctx.storage.saveConversation(session);
         },
         onError: (error) => {
           statusEl.textContent = `错误: ${error.message}`;
@@ -274,6 +296,7 @@ export function apply(ctx: Context, config: Config): void {
           sendEl.style.display = '';
           stopEl.style.display = 'none';
           abortCtrl = null;
+          void ctx.storage.saveConversation(session);
         },
       },
     );

@@ -19,9 +19,13 @@ export interface Message {
   createdAt: number;
 }
 
-/** 消息节点（RikkaHub MessageNodeDto 简化版）：一个节点含多条消息 + 选中索引 */
+/** 消息节点（RikkaHub MessageNodeEntity 对齐版）：会话内节点，多候选消息 + 选中索引表达分支 */
 export interface MessageNode {
   id: string;
+  /** 所属会话 id（外键关联，参考 RikkaHub message_node.conversation_id） */
+  conversationId: string;
+  /** 节点在会话内的排序位置（0 起，参考 node_index） */
+  nodeIndex: number;
   messages: Message[];
   selectIndex: number;
 }
