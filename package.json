@@ -1,0 +1,22 @@
+{
+  "name": "kirusraft",
+  "version": "0.0.1",
+  "description": "KIRUSRAFT - 插件化跨平台 AI 工作台（TS 内核 + Cordis 插件系统）",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:web": "esbuild src/index.ts --bundle --format=esm --outfile=www/kirusraft.js",
+    "build": "npm run build:web",
+    "serve": "npx serve www"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.0",
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^7.0.0"
+  }
+}

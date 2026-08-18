@@ -1,0 +1,13 @@
+# 依赖与构建产物
+node_modules/
+dist/
+www/kirusraft.js
+
+# Capacitor
+android/.gradle/
+android/app/build/
+android/build/
+
+# 本地
+*.local
+.DS_Store
