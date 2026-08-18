@@ -6,6 +6,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { streamChat } from '../providers/deepseek';
 import { appendMessage, createSession, toChatMessages } from '../core/session';
+import { logger } from '../core/logger';
 import type { Session, UIMessagePart, ProviderProfile } from '../core/types';
 
 export const name = 'fallback-gui';
@@ -50,7 +51,21 @@ export function apply(ctx: Context, config: Config): void {
   container.innerHTML = `
     <div data-fg="header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#222;color:#fff;">
       <strong>KIRUSRAFT <span style="opacity:.6">兜底模式</span></strong>
-      <button data-fg="settingsBtn" style="background:none;border:1px solid #555;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;">设置</button>
+      <div>
+        <button data-fg="logsBtn" style="background:none;border:1px solid #555;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">日志</button>
+        <button data-fg="settingsBtn" style="background:none;border:1px solid #555;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;">设置</button>
+      </div>
+    </div>
+    <div data-fg="logpanel" style="display:none;position:absolute;inset:48px 0 0 0;background:#1e1e1e;color:#d4d4d4;font-family:monospace;font-size:12px;flex-direction:column;z-index:10;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;background:#333;">
+        <strong>运行日志</strong>
+        <div>
+          <button data-fg="logRefresh" style="background:#555;color:#fff;border:none;padding:3px 10px;border-radius:3px;cursor:pointer;">刷新</button>
+          <button data-fg="logClear" style="background:#8b0000;color:#fff;border:none;padding:3px 10px;border-radius:3px;cursor:pointer;">清空</button>
+          <button data-fg="logClose" style="background:#555;color:#fff;border:none;padding:3px 10px;border-radius:3px;cursor:pointer;">关闭</button>
+        </div>
+      </div>
+      <div data-fg="logBody" style="flex:1;overflow-y:auto;padding:8px 12px;white-space:pre-wrap;word-break:break-all;"></div>
     </div>
     <div data-fg="messages" style="flex:1;overflow-y:auto;padding:16px;"></div>
     <div data-fg="status" style="padding:2px 16px;font-size:12px;color:#888;min-height:18px;"></div>
@@ -73,8 +88,33 @@ export function apply(ctx: Context, config: Config): void {
   const statusEl = container.querySelector('[data-fg="status"]') as HTMLElement;
   const settingsBtn = container.querySelector('[data-fg="settingsBtn"]') as HTMLButtonElement;
   const webSearchEl = container.querySelector('[data-fg="websearch"]') as HTMLInputElement;
+  const logsBtn = container.querySelector('[data-fg="logsBtn"]') as HTMLButtonElement;
+  const logPanel = container.querySelector('[data-fg="logpanel"]') as HTMLElement;
+  const logBody = container.querySelector('[data-fg="logBody"]') as HTMLElement;
+  const logRefresh = container.querySelector('[data-fg="logRefresh"]') as HTMLButtonElement;
+  const logClear = container.querySelector('[data-fg="logClear"]') as HTMLButtonElement;
+  const logClose = container.querySelector('[data-fg="logClose"]') as HTMLButtonElement;
 
   let abortCtrl: AbortController | null = null;
+
+  function renderLogs(): void {
+    const entries = logger.getLogs();
+    logBody.textContent = entries
+      .map((e) => {
+        const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
+        const lv = e.level.toUpperCase().padEnd(5);
+        return `[${t}] ${lv} [${e.source}] ${e.message}`;
+      })
+      .join('\n');
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  function openLogs(): void {
+    logPanel.style.display = 'flex';
+    renderLogs();
+  }
+
+  logger.info('gui', '兜底 GUI 已挂载');
 
   function renderMessage(role: string, parts: UIMessagePart[]): HTMLElement {
     const bubble = document.createElement('div');
@@ -89,9 +129,11 @@ export function apply(ctx: Context, config: Config): void {
     if (!text.trim()) return;
     if (!profile.apiKey) {
       statusEl.textContent = '请先在设置中填写 API Key';
+      logger.warn('gui', '发送被拒绝：未配置 API Key');
       openSettings();
       return;
     }
+    logger.info('gui', `发送消息(${webSearchEl.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
     appendMessage(session, 'user', [{ type: 'text', text }]);
     msgEl.appendChild(renderMessage('user', [{ type: 'text', text }]));
     inputEl.value = '';
@@ -139,6 +181,7 @@ export function apply(ctx: Context, config: Config): void {
         },
         onError: (error) => {
           statusEl.textContent = `错误: ${error.message}`;
+          logger.error('api', error.message);
           sendEl.style.display = '';
           stopEl.style.display = 'none';
           abortCtrl = null;
@@ -173,6 +216,15 @@ export function apply(ctx: Context, config: Config): void {
       stopEl.style.display = 'none';
     });
     settingsBtn.addEventListener('click', openSettings);
+    logsBtn.addEventListener('click', openLogs);
+    logClose.addEventListener('click', () => {
+      logPanel.style.display = 'none';
+    });
+    logRefresh.addEventListener('click', renderLogs);
+    logClear.addEventListener('click', () => {
+      logger.clear();
+      renderLogs();
+    });
     return () => {
       abortCtrl?.abort();
       listeners.forEach((l) => l());
