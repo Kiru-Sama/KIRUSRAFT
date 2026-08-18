@@ -37,7 +37,11 @@ class Logger {
 
   private flushPersist(): void {
     try {
-      const merged = [...this.memory];
+      if (this.memory.length === 0) return;
+      // 只落盘增量：flush 后清空内存，避免每次全量重灌导致日志无限重复
+      const fresh = this.memory;
+      this.memory = [];
+      const merged = [...fresh];
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         try {

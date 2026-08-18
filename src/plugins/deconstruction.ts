@@ -33,8 +33,13 @@ body.kr-deconstruction {
   font-family: var(--kr-font);
 }
 .kr-deconstruction [data-fg="messages"] { background: var(--kr-bg); }
-.kr-deconstruction [data-fg="messages"] > div[style*="background: #fff"] {
+.kr-deconstruction [data-fg="messages"] .fg-ai {
   background: var(--kr-surface) !important;
+  border: 2px solid var(--kr-border) !important;
+  box-shadow: var(--kr-shadow) !important;
+  border-radius: 2px !important;
+}
+.kr-deconstruction [data-fg="messages"] .fg-user {
   border: 2px solid var(--kr-border) !important;
   box-shadow: var(--kr-shadow) !important;
   border-radius: 2px !important;

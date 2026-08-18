@@ -45,16 +45,17 @@ export class ConfigService extends Service {
     return () => void dispose();
   }
 
-  /** 读配置 */
+  /** 读配置（返回浅拷贝，防止外部改内部状态绕过持久化） */
   get(namespace: string): Record<string, unknown> {
-    return this.values.get(namespace) ?? {};
+    return { ...(this.values.get(namespace) ?? {}) };
   }
 
-  /** 写配置：持久化 + 通知监听者 */
+  /** 写配置：与 defaults 合并（防止部分写入丢字段）+ 持久化 + 通知监听者 */
   set(namespace: string, value: Record<string, unknown>): void {
-    this.values.set(namespace, value);
-    this.persist(namespace, value);
-    this.listeners.get(namespace)?.forEach((cb) => cb(value));
+    const merged = { ...(this.sections.get(namespace)?.defaults ?? {}), ...value };
+    this.values.set(namespace, merged);
+    this.persist(namespace, merged);
+    this.listeners.get(namespace)?.forEach((cb) => cb(merged));
   }
 
   /** 订阅变更，返回 disposer */

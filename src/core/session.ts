@@ -48,6 +48,9 @@ export function appendMessage(session: Session, role: 'user' | 'ai', parts: UIMe
 
 /** 分叉：从指定消息处创建新分支（简化版：单节点替换，多节点链后续扩展） */
 export function forkAt(session: Session, messageIndex: number): MessageNode {
+  if (messageIndex < 0 || messageIndex >= session.node.messages.length) {
+    throw new Error(`分叉位置越界: ${messageIndex}（消息数 ${session.node.messages.length}）`);
+  }
   const slice = session.node.messages.slice(0, messageIndex + 1);
   const newNode = createNode(
     session.id,

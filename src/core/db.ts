@@ -1,6 +1,6 @@
 /**
- * IndexedDB 封装（v0.0.5）
- * 数据层地基：统一封装数据库打开、object store 创建、CRUD、版本迁移。
+ * IndexedDB 封装（v0.0.6）
+ * 数据层地基：统一封装数据库打开、object store 创建、CRUD、版本迁移、事务。
  * 内核通过它做持久化，不直接碰 IndexedDB API（未来可替换存储后端）。
  */
 
@@ -21,33 +21,41 @@ export type Migration = (db: IDBDatabase, oldVersion: number) => void;
 
 export class Db {
   private db: IDBDatabase | null = null;
+  private opening: Promise<void> | null = null;
 
   constructor(
     private readonly name: string,
     private readonly version: number,
     private readonly stores: StoreDef[],
-    private readonly migrations: Migration[] = [],
+    /** key 是目标版本号 v（从 v-1 升到 v 时执行该迁移） */
+    private readonly migrations: Record<number, Migration> = {},
   ) {}
 
-  /** 打开数据库（首次创建 store + 执行迁移） */
+  /** 打开数据库（首次创建 store + 补索引 + 执行迁移；并发调用去重） */
   async open(): Promise<void> {
     if (this.db) return;
-    return new Promise((resolve, reject) => {
+    if (this.opening) return this.opening;
+    this.opening = new Promise((resolve, reject) => {
       const req = indexedDB.open(this.name, this.version);
       req.onupgradeneeded = (event) => {
         const db = req.result;
         const oldVersion = event.oldVersion;
         const newVersion = event.newVersion ?? this.version;
-        // 创建缺失的 store（幂等）
+        // 创建缺失 store + 对已存在 store 补建缺失索引（幂等）
         for (const store of this.stores) {
-          if (!db.objectStoreNames.contains(store.name)) {
-            const os = db.createObjectStore(store.name, { keyPath: store.keyPath });
-            for (const idx of store.indexes ?? []) {
+          let os: IDBObjectStore;
+          if (db.objectStoreNames.contains(store.name)) {
+            os = req.transaction!.objectStore(store.name);
+          } else {
+            os = db.createObjectStore(store.name, { keyPath: store.keyPath });
+          }
+          for (const idx of store.indexes ?? []) {
+            if (!os.indexNames.contains(idx.name)) {
               os.createIndex(idx.name, idx.keyPath, { unique: idx.unique ?? false });
             }
           }
         }
-        // 逐版本执行迁移回调
+        // 逐版本执行迁移回调（key 为目标版本号）
         for (let v = oldVersion + 1; v <= newVersion; v++) {
           const migration = this.migrations[v];
           if (migration) migration(db, v - 1);
@@ -58,12 +66,59 @@ export class Db {
         resolve();
       };
       req.onerror = () => reject(req.error ?? new Error('IndexedDB 打开失败'));
+      req.onblocked = () => reject(new Error('IndexedDB 打开被阻塞（版本回退或有旧连接未关闭）'));
     });
+    return this.opening;
   }
 
   private ensureOpen(): IDBDatabase {
     if (!this.db) throw new Error('数据库未打开，先调用 open()');
     return this.db;
+  }
+
+  /** 跨 store 事务：保证多写原子性 */
+  async transaction<T>(
+    stores: string[],
+    mode: IDBTransactionMode,
+    fn: (tx: IDBTransaction) => T | Promise<T>,
+  ): Promise<T> {
+    const db = this.ensureOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(stores, mode);
+      let result: T;
+      let settled = false;
+      void (async () => {
+        try {
+          result = await fn(tx);
+        } catch (error) {
+          settled = true;
+          try {
+            tx.abort();
+          } catch {
+            /* 忽略 */
+          }
+          reject(error);
+        }
+      })();
+      tx.oncomplete = () => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
+      tx.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(tx.error ?? new Error('事务失败'));
+        }
+      };
+      tx.onabort = () => {
+        if (!settled) {
+          settled = true;
+          reject(tx.error ?? new Error('事务中止'));
+        }
+      };
+    });
   }
 
   /** 单条写入（插入或更新） */

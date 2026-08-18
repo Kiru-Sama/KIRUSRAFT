@@ -28,11 +28,27 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
   const functionTools = options.tools.declarations();
   const serverTools = options.request.tools ?? [];
 
+  let finished = false;
+  const finishOnce = () => {
+    if (!finished) {
+      finished = true;
+      handlers.onDone();
+    }
+  };
+
   for (let step = 0; step < maxSteps; step++) {
     const toolCalls: { id: string; name: string; args: Record<string, unknown>; rawArguments?: string }[] = [];
 
     const stepHandlers: ChatStreamHandlers = {
       ...handlers,
+      // 关键：单轮流结束不通知调用方（onDone 只在整个循环结束时触发一次）
+      onDone: () => {
+        /* 单轮结束，忽略 */
+      },
+      onError: (error) => {
+        finished = true;
+        handlers.onError(error);
+      },
       onToolCall: (call) => {
         toolCalls.push(call);
         handlers.onToolCall(call);
@@ -49,8 +65,11 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
       options.signal,
     );
 
-    if (options.signal?.aborted) return;
-    if (toolCalls.length === 0) return;
+    if (options.signal?.aborted || finished) return;
+    if (toolCalls.length === 0) {
+      finishOnce();
+      return;
+    }
 
     // 执行工具，回传结果
     for (const call of toolCalls) {
@@ -65,5 +84,10 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
         input.push({ type: 'function_call_output', call_id: call.id, output: `工具执行错误: ${message}` });
       }
     }
+  }
+
+  // maxSteps 耗尽仍未完成：给出明确提示
+  if (!finished) {
+    handlers.onError(new Error(`已达最大步数 ${maxSteps}，工具循环未完成`));
   }
 }

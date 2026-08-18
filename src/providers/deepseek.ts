@@ -32,7 +32,20 @@ function buildInput(request: ChatRequest): ResponsesInputItem[] {
 
 /** 发起流式聊天，分发增量；收集 function 工具调用 */
 export async function streamChat(request: ChatRequest, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void> {
-  const endpoint = `${request.baseURL.replace(/\/+$/, '')}/responses`;
+  // 校验 endpoint（空值/相对路径会拼出非法 URL）
+  let endpoint: string;
+  try {
+    endpoint = `${request.baseURL.replace(/\/+$/, '')}/responses`;
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:') {
+      handlers.onError(new Error('Base URL 必须是 https'));
+      return;
+    }
+  } catch {
+    handlers.onError(new Error(`Base URL 非法: ${request.baseURL || '(空)'}`));
+    return;
+  }
+
   const body: Record<string, unknown> = {
     model: request.model,
     input: buildInput(request),
@@ -81,10 +94,21 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
 
+  // 空闲超时：60s 无数据则中止，防止服务端半开挂死
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetIdle = () => {
+    if (idleTimer !== null) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      void reader.cancel().catch(() => {});
+    }, 60000);
+  };
+  resetIdle();
+
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      resetIdle();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
@@ -100,6 +124,9 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   } catch (error) {
     if (signal?.aborted) return;
     handlers.onError(error instanceof Error ? error : new Error(String(error)));
+  } finally {
+    if (idleTimer !== null) clearTimeout(idleTimer);
+    void reader.cancel().catch(() => {});
   }
 }
 
@@ -121,7 +148,8 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
       break;
     case 'response.output_item.done': {
       const item = record.item as Record<string, unknown> | undefined;
-      if (item && item.type === 'function_call' && typeof item.name === 'string') {
+      // call_id 为空时跳过（无法回传 function_call_output）
+      if (item && item.type === 'function_call' && typeof item.name === 'string' && item.call_id) {
         let args: Record<string, unknown> = {};
         try {
           if (typeof item.arguments === 'string' && item.arguments.length > 0) {
@@ -131,7 +159,7 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
           /* 参数解析失败用空对象 */
         }
         handlers.onToolCall({
-          id: String(item.call_id ?? ''),
+          id: String(item.call_id),
           name: item.name,
           args,
           rawArguments: typeof item.arguments === 'string' ? item.arguments : undefined,

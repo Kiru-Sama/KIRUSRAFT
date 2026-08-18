@@ -10,7 +10,7 @@ export const inject = ['tools', 'providers', 'config'];
 
 interface PluginRuntime {
   name?: string;
-  fibers?: { size?: number };
+  fibers?: { length?: number };
 }
 
 export function apply(ctx: Context): void {
@@ -32,8 +32,8 @@ export function apply(ctx: Context): void {
       const values = ctx.registry.values();
       for (const runtime of values) {
         const r = runtime as PluginRuntime;
-        const fiberCount = r.fibers?.size ?? 1;
-        plugins.push(`${r.name ?? '(匿名)'}${fiberCount > 0 ? ' [已挂载]' : ''}`);
+        const fiberCount = r.fibers?.length ?? 0;
+        plugins.push(`${r.name ?? '(匿名)'}${fiberCount > 0 ? ` [${fiberCount} 个实例]` : ''}`);
       }
     } catch {
       plugins.push('（无法枚举插件）');

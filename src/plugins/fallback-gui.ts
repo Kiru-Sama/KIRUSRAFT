@@ -22,6 +22,7 @@ export function apply(ctx: Context, config: Config): void {
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
   let session: Session = createSession();
+  let loaded = false;
 
   // 注册 profile 配置分节（走配置中心，带设置表单渲染）
   ctx.config.register({
@@ -202,24 +203,43 @@ export function apply(ctx: Context, config: Config): void {
   void (async () => {
     try {
       const list = await ctx.storage.listConversations();
-      if (list.length > 0) {
-        session = list[0];
+      const loadedSession = list[0];
+      if (loadedSession && loadedSession.node && Array.isArray(loadedSession.node.messages)) {
+        session = loadedSession;
         for (const m of session.node.messages) {
           msgEl.appendChild(renderMessage(m.role, m.parts));
         }
         msgEl.scrollTop = msgEl.scrollHeight;
         logger.info('gui', `已加载最近会话（${session.node.messages.length} 条消息）`);
+      } else if (loadedSession) {
+        logger.warn('storage', '会话数据损坏，已重建');
+        session = createSession();
+        await ctx.storage.saveConversation(session);
       } else {
         await ctx.storage.saveConversation(session);
         logger.info('gui', '新建会话已落盘');
       }
     } catch (error) {
       logger.error('storage', `加载会话失败: ${String(error)}`);
+    } finally {
+      loaded = true;
     }
   })();
 
+  function saveSessionSafe(): void {
+    void ctx.storage.saveConversation(session).catch((error) => {
+      logger.error('storage', `保存会话失败: ${String(error)}`);
+    });
+  }
+
+  let streaming = false;
+
   async function send(text: string): Promise<void> {
-    if (!text.trim()) return;
+    if (!text.trim() || streaming) return;
+    if (!loaded) {
+      statusEl.textContent = '正在加载会话...';
+      return;
+    }
     // 每次发送都读最新配置（config.set 会替换对象，闭包引用会失效）
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     if (!currentProfile.apiKey) {
@@ -228,78 +248,80 @@ export function apply(ctx: Context, config: Config): void {
       openSettings();
       return;
     }
-    logger.info('gui', `发送消息(${webSearchEl.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
-    appendMessage(session, 'user', [{ type: 'text', text }]);
-    msgEl.appendChild(renderMessage('user', [{ type: 'text', text }]));
-    void ctx.storage.saveConversation(session);
-    inputEl.value = '';
-    msgEl.scrollTop = msgEl.scrollHeight;
-
-    const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
-    appendMessage(session, 'ai', aiParts);
-    const aiBubble = renderMessage('ai', aiParts);
-    msgEl.appendChild(aiBubble);
-    msgEl.scrollTop = msgEl.scrollHeight;
-
-    abortCtrl = new AbortController();
-    sendEl.style.display = 'none';
-    stopEl.style.display = '';
-    statusEl.textContent = '思考中...';
-
-    // 从服务商服务取 provider（服务化），走 agent 循环（模型可调用已注册工具）
-    const provider = ctx.providers.get(currentProfile.id) ?? ctx.providers.list()[0];
+    const provider = ctx.providers.get(currentProfile.id);
     if (!provider) {
-      statusEl.textContent = '错误: 无可用服务商';
-      logger.error('gui', '无可用服务商');
+      statusEl.textContent = `错误: 服务商 "${currentProfile.id}" 未注册`;
+      logger.error('gui', `服务商 "${currentProfile.id}" 未注册`);
+      openSettings();
       return;
     }
 
-    await runAgentLoop(
-      {
-        provider,
-        request: {
-          model: currentProfile.model,
-          apiKey: currentProfile.apiKey,
-          baseURL: currentProfile.baseURL,
-          messages: toChatMessages(session.node),
-          maxTokens: 4096,
-          tools: webSearchEl.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
+    streaming = true;
+    try {
+      logger.info('gui', `发送消息(${webSearchEl.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
+      appendMessage(session, 'user', [{ type: 'text', text }]);
+      msgEl.appendChild(renderMessage('user', [{ type: 'text', text }]));
+      saveSessionSafe();
+      inputEl.value = '';
+      msgEl.scrollTop = msgEl.scrollHeight;
+
+      const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
+      appendMessage(session, 'ai', aiParts);
+      const aiBubble = renderMessage('ai', aiParts);
+      msgEl.appendChild(aiBubble);
+      msgEl.scrollTop = msgEl.scrollHeight;
+
+      abortCtrl = new AbortController();
+      sendEl.style.display = 'none';
+      stopEl.style.display = '';
+      statusEl.textContent = '思考中...';
+
+      await runAgentLoop(
+        {
+          provider,
+          request: {
+            model: currentProfile.model,
+            apiKey: currentProfile.apiKey,
+            baseURL: currentProfile.baseURL,
+            messages: toChatMessages(session.node),
+            maxTokens: 4096,
+            tools: webSearchEl.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
+          },
+          tools: ctx.tools,
+          signal: abortCtrl.signal,
         },
-        tools: ctx.tools,
-        signal: abortCtrl.signal,
-      },
-      {
-        onTextDelta: (delta) => {
-          const part = aiParts[0];
-          if (part.type === 'text') part.text += delta;
-          aiBubble.textContent = (part.type === 'text' ? part.text : '');
-          msgEl.scrollTop = msgEl.scrollHeight;
-          statusEl.textContent = '生成中...';
+        {
+          onTextDelta: (delta) => {
+            const part = aiParts[0];
+            if (part.type === 'text') part.text += delta;
+            aiBubble.textContent = (part.type === 'text' ? part.text : '');
+            msgEl.scrollTop = msgEl.scrollHeight;
+            statusEl.textContent = '生成中...';
+          },
+          onReasoningDelta: () => {
+            statusEl.textContent = '推理中...';
+          },
+          onToolCall: (call) => {
+            statusEl.textContent = `调用工具: ${call.name}...`;
+            logger.info('tool', `调用工具 ${call.name}`);
+          },
+          onDone: () => {
+            statusEl.textContent = '';
+          },
+          onError: (error) => {
+            statusEl.textContent = `错误: ${error.message}`;
+            logger.error('api', error.message);
+          },
         },
-        onReasoningDelta: () => {
-          statusEl.textContent = '推理中...';
-        },
-        onToolCall: (call) => {
-          statusEl.textContent = `调用工具: ${call.name}...`;
-          logger.info('tool', `调用工具 ${call.name}`);
-        },
-        onDone: () => {
-          statusEl.textContent = '';
-          sendEl.style.display = '';
-          stopEl.style.display = 'none';
-          abortCtrl = null;
-          void ctx.storage.saveConversation(session);
-        },
-        onError: (error) => {
-          statusEl.textContent = `错误: ${error.message}`;
-          logger.error('api', error.message);
-          sendEl.style.display = '';
-          stopEl.style.display = 'none';
-          abortCtrl = null;
-          void ctx.storage.saveConversation(session);
-        },
-      },
-    );
+      );
+    } finally {
+      // 无论成功/失败/中止，统一恢复 UI 与落盘（避免 UI 卡死）
+      streaming = false;
+      sendEl.style.display = '';
+      stopEl.style.display = 'none';
+      abortCtrl = null;
+      saveSessionSafe();
+    }
   }
 
   function openSettings(): void {
@@ -331,16 +353,19 @@ export function apply(ctx: Context, config: Config): void {
 
   // 生命周期：副作用回收（Cordis effect 模式，卸载时自动逆序清理）
   ctx.effect(() => {
-    const listeners: Array<() => void> = [];
     sendEl.addEventListener('click', () => void send(inputEl.value));
     inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') void send(inputEl.value);
+      // 中文输入法组合态（isComposing）回车不应发送
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) void send(inputEl.value);
     });
     stopEl.addEventListener('click', () => {
       abortCtrl?.abort();
+      abortCtrl = null;
       statusEl.textContent = '已中止';
       sendEl.style.display = '';
       stopEl.style.display = 'none';
+      // 中止也要保存已生成的部分内容
+      saveSessionSafe();
     });
     settingsBtn.addEventListener('click', openSettings);
     settingsClose.addEventListener('click', () => {
@@ -357,7 +382,6 @@ export function apply(ctx: Context, config: Config): void {
     });
     return () => {
       abortCtrl?.abort();
-      listeners.forEach((l) => l());
       container.remove();
     };
   });
