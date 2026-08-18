@@ -55,6 +55,9 @@ export function apply(ctx: Context, config: Config): void {
     <div data-fg="messages" style="flex:1;overflow-y:auto;padding:16px;"></div>
     <div data-fg="status" style="padding:2px 16px;font-size:12px;color:#888;min-height:18px;"></div>
     <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid #ddd;background:#fff;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#555;">
+        <input data-fg="websearch" type="checkbox" /> 联网搜索
+      </label>
       <input data-fg="input" type="text" placeholder="输入消息，Enter 发送"
         style="flex:1;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:14px;" />
       <button data-fg="send" style="padding:10px 18px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">发送</button>
@@ -69,6 +72,7 @@ export function apply(ctx: Context, config: Config): void {
   const stopEl = container.querySelector('[data-fg="stop"]') as HTMLButtonElement;
   const statusEl = container.querySelector('[data-fg="status"]') as HTMLElement;
   const settingsBtn = container.querySelector('[data-fg="settingsBtn"]') as HTMLButtonElement;
+  const webSearchEl = container.querySelector('[data-fg="websearch"]') as HTMLInputElement;
 
   let abortCtrl: AbortController | null = null;
 
@@ -111,6 +115,7 @@ export function apply(ctx: Context, config: Config): void {
         baseURL: profile.baseURL,
         messages: toChatMessages(session.node),
         maxTokens: 4096,
+        tools: webSearchEl.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
       },
       {
         onTextDelta: (delta) => {

@@ -63,7 +63,7 @@ export interface ChatRequest {
   apiKey: string;
   baseURL: string;
   messages: { role: string; content: string }[];
-  tools?: { type: string; name?: string; parameters?: unknown }[];
+  tools?: { type: string; name?: string; parameters?: unknown; max_uses?: number }[];
   maxTokens?: number;
 }
 
