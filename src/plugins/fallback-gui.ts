@@ -10,33 +10,11 @@ import { logger } from '../core/logger';
 import type { Session, UIMessagePart, ProviderProfile } from '../core/types';
 
 export const name = 'fallback-gui';
-export const inject = ['providers', 'tools'];
+export const inject = ['providers', 'tools', 'config'];
 
 export interface Config {
   /** 挂载根节点，缺省取 #app */
   root?: HTMLElement;
-}
-
-const STORAGE_KEY = 'kirusraft.profile.v1';
-
-function loadProfile(): ProviderProfile {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as ProviderProfile;
-  } catch {
-    /* 忽略损坏配置 */
-  }
-  return {
-    id: 'deepseek',
-    displayName: 'DeepSeek',
-    baseURL: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
-    apiKey: '',
-  };
-}
-
-function saveProfile(profile: ProviderProfile): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -44,9 +22,42 @@ export function apply(ctx: Context, config: Config): void {
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
   const session: Session = createSession();
-  const profile = loadProfile();
 
-  // 构建界面骨架（样式统一集中在下方 <style> 注入块，data-fg 作为选择器锚点，逻辑不变）
+  // 注册 profile 配置分节（走配置中心，带设置表单渲染）
+  ctx.config.register({
+    namespace: 'profile',
+    displayName: '服务商',
+    defaults: {
+      id: 'deepseek',
+      baseURL: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
+      apiKey: '',
+    },
+    render: (container, get, set) => {
+      const fields: { key: string; label: string; placeholder: string; password?: boolean }[] = [
+        { key: 'baseURL', label: 'Base URL（含 /v1）', placeholder: 'https://api.deepseek.com/v1' },
+        { key: 'model', label: '模型', placeholder: 'deepseek-chat' },
+        { key: 'apiKey', label: 'API Key', placeholder: 'sk-...', password: true },
+      ];
+      for (const f of fields) {
+        const label = document.createElement('label');
+        label.textContent = f.label;
+        label.style.cssText = 'display:block;font-size:12px;color:#5a6172;margin:12px 0 4px;';
+        const input = document.createElement('input');
+        input.type = f.password ? 'password' : 'text';
+        input.value = String(get()[f.key] ?? '');
+        input.placeholder = f.placeholder;
+        input.style.cssText =
+          'width:100%;padding:8px 12px;border:1px solid #dfe2ea;border-radius:8px;font-size:13px;box-sizing:border-box;background:#f7f8fa;';
+        input.addEventListener('input', () => {
+          set({ ...get(), [f.key]: input.value });
+        });
+        container.appendChild(label);
+        container.appendChild(input);
+      }
+    },
+  });
+
   const container = document.createElement('div');
   container.className = 'fg-root';
   container.innerHTML = `
@@ -120,6 +131,15 @@ export function apply(ctx: Context, config: Config): void {
       </div>
       <div data-fg="logBody"></div>
     </div>
+    <div data-fg="settingspanel" style="display:none;position:absolute;inset:0;background:rgba(31,35,40,.4);z-index:9;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:16px;width:90%;max-width:420px;max-height:80vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <strong style="font-size:16px;">设置</strong>
+          <button data-fg="settingsClose" style="background:none;border:none;font-size:22px;cursor:pointer;color:#8a90a0;line-height:1;">×</button>
+        </div>
+        <div data-fg="settingsBody"></div>
+      </div>
+    </div>
     <div data-fg="messages"></div>
     <div data-fg="status"></div>
     <div class="fg-composer">
@@ -146,6 +166,9 @@ export function apply(ctx: Context, config: Config): void {
   const logRefresh = container.querySelector('[data-fg="logRefresh"]') as HTMLButtonElement;
   const logClear = container.querySelector('[data-fg="logClear"]') as HTMLButtonElement;
   const logClose = container.querySelector('[data-fg="logClose"]') as HTMLButtonElement;
+  const settingsPanel = container.querySelector('[data-fg="settingspanel"]') as HTMLElement;
+  const settingsBody = container.querySelector('[data-fg="settingsBody"]') as HTMLElement;
+  const settingsClose = container.querySelector('[data-fg="settingsClose"]') as HTMLButtonElement;
 
   let abortCtrl: AbortController | null = null;
 
@@ -177,7 +200,9 @@ export function apply(ctx: Context, config: Config): void {
 
   async function send(text: string): Promise<void> {
     if (!text.trim()) return;
-    if (!profile.apiKey) {
+    // 每次发送都读最新配置（config.set 会替换对象，闭包引用会失效）
+    const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
+    if (!currentProfile.apiKey) {
       statusEl.textContent = '请先在设置中填写 API Key';
       logger.warn('gui', '发送被拒绝：未配置 API Key');
       openSettings();
@@ -201,7 +226,7 @@ export function apply(ctx: Context, config: Config): void {
     statusEl.textContent = '思考中...';
 
     // 从服务商服务取 provider（服务化），走 agent 循环（模型可调用已注册工具）
-    const provider = ctx.providers.get(profile.id) ?? ctx.providers.list()[0];
+    const provider = ctx.providers.get(currentProfile.id) ?? ctx.providers.list()[0];
     if (!provider) {
       statusEl.textContent = '错误: 无可用服务商';
       logger.error('gui', '无可用服务商');
@@ -212,9 +237,9 @@ export function apply(ctx: Context, config: Config): void {
       {
         provider,
         request: {
-          model: profile.model,
-          apiKey: profile.apiKey,
-          baseURL: profile.baseURL,
+          model: currentProfile.model,
+          apiKey: currentProfile.apiKey,
+          baseURL: currentProfile.baseURL,
           messages: toChatMessages(session.node),
           maxTokens: 4096,
           tools: webSearchEl.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
@@ -255,14 +280,30 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   function openSettings(): void {
-    const apiKey = prompt('API Key:', profile.apiKey) ?? profile.apiKey;
-    const baseURL = prompt('Base URL（含 /v1）:', profile.baseURL) ?? profile.baseURL;
-    const model = prompt('模型:', profile.model) ?? profile.model;
-    profile.apiKey = apiKey;
-    profile.baseURL = baseURL;
-    profile.model = model;
-    saveProfile(profile);
-    statusEl.textContent = `已配置: ${profile.model} @ ${profile.baseURL}`;
+    settingsBody.innerHTML = '';
+    // 遍历所有注册的配置分节，聚合渲染设置表单
+    for (const section of ctx.config.list()) {
+      const title = document.createElement('div');
+      title.textContent = section.displayName;
+      title.style.cssText = 'font-size:14px;font-weight:600;color:#1f2328;margin-top:16px;padding-bottom:4px;border-bottom:1px solid #ececf1;';
+      settingsBody.appendChild(title);
+      const sectionContainer = document.createElement('div');
+      settingsBody.appendChild(sectionContainer);
+      if (section.render) {
+        section.render(
+          sectionContainer,
+          () => ctx.config.get(section.namespace),
+          (value) => ctx.config.set(section.namespace, value),
+        );
+      } else {
+        const empty = document.createElement('div');
+        empty.textContent = '（无设置项）';
+        empty.style.cssText = 'font-size:12px;color:#9aa1b0;padding:8px 0;';
+        sectionContainer.appendChild(empty);
+      }
+    }
+    settingsPanel.style.display = 'flex';
+    logger.info('gui', '打开设置面板');
   }
 
   // 生命周期：副作用回收（Cordis effect 模式，卸载时自动逆序清理）
@@ -279,6 +320,9 @@ export function apply(ctx: Context, config: Config): void {
       stopEl.style.display = 'none';
     });
     settingsBtn.addEventListener('click', openSettings);
+    settingsClose.addEventListener('click', () => {
+      settingsPanel.style.display = 'none';
+    });
     logsBtn.addEventListener('click', openLogs);
     logClose.addEventListener('click', () => {
       logPanel.style.display = 'none';

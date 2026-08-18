@@ -6,7 +6,7 @@
 import { Context } from '@deepseek-ai/cordis';
 
 export const name = 'plugin-overview';
-export const inject = ['tools', 'providers'];
+export const inject = ['tools', 'providers', 'config'];
 
 interface PluginRuntime {
   name?: string;
@@ -43,6 +43,8 @@ export function apply(ctx: Context): void {
     const tools = ctx.tools.list().map((t) => `${t.name}: ${t.description.slice(0, 30)}`);
     // 服务商列表
     const providers = ctx.providers.list().map((p) => `${p.id} (${p.displayName})`);
+    // 配置分节列表
+    const configSections = ctx.config.list().map((s) => `${s.namespace} (${s.displayName})`);
 
     const section = (title: string, items: string[]) =>
       `<div style="font-size:13px;font-weight:600;color:#1f2328;margin:12px 0 6px;">${title}</div>` +
@@ -55,6 +57,7 @@ export function apply(ctx: Context): void {
       ${section(`插件 (${plugins.length})`, plugins)}
       ${section(`工具 (${tools.length})`, tools)}
       ${section(`服务商 (${providers.length})`, providers)}
+      ${section(`配置 (${configSections.length})`, configSections)}
     `;
   }
 

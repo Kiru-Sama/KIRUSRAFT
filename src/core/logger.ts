@@ -20,12 +20,22 @@ const MAX_STORED = 2000;
 /** 单例日志器 */
 class Logger {
   private memory: LogEntry[] = [];
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.installGlobalHooks();
   }
 
+  /** 节流持久化：500ms 内合并写一次，避免高频日志时每次都全量写 localStorage */
   private persist(): void {
+    if (this.persistTimer !== null) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.flushPersist();
+    }, 500);
+  }
+
+  private flushPersist(): void {
     try {
       const merged = [...this.memory];
       const raw = localStorage.getItem(STORAGE_KEY);
