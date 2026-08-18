@@ -266,7 +266,9 @@ export function apply(ctx: Context, config: Config): void {
       msgEl.scrollTop = msgEl.scrollHeight;
 
       const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
-      appendMessage(session, 'ai', aiParts);
+      // 不提前 appendMessage('ai')：避免请求体末尾出现空 content 的 assistant 占位消息（L-1）
+      // 且空气泡不会落盘（N-8）。首个文本增量到达时才写入 session。
+      let aiAppended = false;
       const aiBubble = renderMessage('ai', aiParts);
       msgEl.appendChild(aiBubble);
       msgEl.scrollTop = msgEl.scrollHeight;
@@ -292,6 +294,10 @@ export function apply(ctx: Context, config: Config): void {
         },
         {
           onTextDelta: (delta) => {
+            if (!aiAppended) {
+              appendMessage(session, 'ai', aiParts);
+              aiAppended = true;
+            }
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
             aiBubble.textContent = (part.type === 'text' ? part.text : '');

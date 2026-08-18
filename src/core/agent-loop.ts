@@ -2,14 +2,19 @@
  * agent 循环（v0.0.1）
  * 内核抽象层：模型调工具 → 执行 → 回传 → 继续生成，直到无工具调用或达 maxSteps。
  */
-import type { ChatRequest, ChatStreamHandlers } from './types';
-import type { ToolsService } from './tools';
+import type { ChatRequest, ChatStreamHandlers, UIMessagePart } from './types';
 import type { ChatProvider } from '../providers/types';
+
+/** agent 循环对工具服务的最小依赖（不依赖整个 ToolsService，便于测试与解耦） */
+export interface ToolExecutor {
+  declarations(): { type: string; name: string; description: string; parameters: unknown }[];
+  execute(name: string, args: Record<string, unknown>): Promise<UIMessagePart[]>;
+}
 
 export interface AgentLoopOptions {
   provider: ChatProvider;
   request: ChatRequest;
-  tools: ToolsService;
+  tools: ToolExecutor;
   maxSteps?: number;
   signal?: AbortSignal;
 }

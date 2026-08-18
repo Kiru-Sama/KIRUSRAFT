@@ -36,12 +36,11 @@ class Logger {
   }
 
   private flushPersist(): void {
+    if (this.memory.length === 0) return;
+    // 只落盘增量：写成功后才清空内存，失败则日志留在内存不丢失
+    const fresh = this.memory;
+    const merged = [...fresh];
     try {
-      if (this.memory.length === 0) return;
-      // 只落盘增量：flush 后清空内存，避免每次全量重灌导致日志无限重复
-      const fresh = this.memory;
-      this.memory = [];
-      const merged = [...fresh];
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         try {
@@ -51,10 +50,15 @@ class Logger {
           /* 忽略损坏日志 */
         }
       }
-      const trimmed = merged.slice(-MAX_STORED);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
     } catch {
-      /* 存储满或不可用时静默 */
+      /* 读取失败不阻断写入 */
+    }
+    const trimmed = merged.slice(-MAX_STORED);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+      this.memory = [];
+    } catch {
+      /* 写失败：fresh 留在 memory，getLogs 仍能读到，不丢 */
     }
   }
 

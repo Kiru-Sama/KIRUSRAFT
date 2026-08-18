@@ -76,34 +76,35 @@ export class Db {
     return this.db;
   }
 
-  /** 跨 store 事务：保证多写原子性 */
-  async transaction<T>(
+  /**
+   * 跨 store 事务：保证多写原子性。
+   * 注意：fn 必须同步执行（不得 await/跨越事件循环），否则事务在 oncomplete 后才完成会丢结果。
+   */
+  async transaction(
     stores: string[],
     mode: IDBTransactionMode,
-    fn: (tx: IDBTransaction) => T | Promise<T>,
-  ): Promise<T> {
+    fn: (tx: IDBTransaction) => void,
+  ): Promise<void> {
     const db = this.ensureOpen();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(stores, mode);
-      let result: T;
       let settled = false;
-      void (async () => {
+      try {
+        fn(tx);
+      } catch (error) {
+        settled = true;
         try {
-          result = await fn(tx);
-        } catch (error) {
-          settled = true;
-          try {
-            tx.abort();
-          } catch {
-            /* 忽略 */
-          }
-          reject(error);
+          tx.abort();
+        } catch {
+          /* 忽略 */
         }
-      })();
+        reject(error);
+        return;
+      }
       tx.oncomplete = () => {
         if (!settled) {
           settled = true;
-          resolve(result);
+          resolve();
         }
       };
       tx.onerror = () => {
@@ -129,6 +130,7 @@ export class Db {
       tx.objectStore(store).put(value);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 
@@ -140,6 +142,7 @@ export class Db {
       const req = tx.objectStore(store).get(key);
       req.onsuccess = () => resolve(req.result as T | undefined);
       req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 
@@ -151,6 +154,7 @@ export class Db {
       const req = tx.objectStore(store).getAll();
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 
@@ -162,6 +166,7 @@ export class Db {
       const req = tx.objectStore(store).index(index).getAll(value);
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => reject(req.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 
@@ -173,6 +178,7 @@ export class Db {
       tx.objectStore(store).delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 
@@ -184,6 +190,7 @@ export class Db {
       tx.objectStore(store).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
 }

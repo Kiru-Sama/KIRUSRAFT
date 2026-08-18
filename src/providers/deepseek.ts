@@ -37,8 +37,9 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   try {
     endpoint = `${request.baseURL.replace(/\/+$/, '')}/responses`;
     const url = new URL(endpoint);
-    if (url.protocol !== 'https:') {
-      handlers.onError(new Error('Base URL 必须是 https'));
+    const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    if (url.protocol !== 'https:' && !isLocal) {
+      handlers.onError(new Error('Base URL 必须是 https（本地 http 端点除外）'));
       return;
     }
   } catch {
@@ -96,9 +97,11 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
 
   // 空闲超时：60s 无数据则中止，防止服务端半开挂死
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
   const resetIdle = () => {
     if (idleTimer !== null) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
+      timedOut = true;
       void reader.cancel().catch(() => {});
     }, 60000);
   };
@@ -123,6 +126,10 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
     handlers.onDone();
   } catch (error) {
     if (signal?.aborted) return;
+    if (timedOut) {
+      handlers.onError(new Error('请求超时（60 秒无数据）'));
+      return;
+    }
     handlers.onError(error instanceof Error ? error : new Error(String(error)));
   } finally {
     if (idleTimer !== null) clearTimeout(idleTimer);
