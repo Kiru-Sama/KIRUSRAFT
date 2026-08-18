@@ -8,6 +8,7 @@ import * as CoreServices from './plugins/core-services';
 import * as ProviderDeepseek from './plugins/provider-deepseek';
 import * as ToolTime from './plugins/tool-time';
 import * as FallbackGui from './plugins/fallback-gui';
+import * as PluginOverview from './plugins/plugin-overview';
 import * as Deconstruction from './plugins/deconstruction';
 
 export interface BootstrapOptions {
@@ -28,6 +29,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
 
   // 工具插件：get_time_info（本地工具验证 agent 循环）
   await ctx.plugin(ToolTime);
+
+  // 插件总览：右下角按钮 + 面板，展示插件/工具/服务商
+  await ctx.plugin(PluginOverview);
 
   // 兜底 GUI：内核自带，永远挂载（保证有界面）
   await ctx.plugin(FallbackGui, { root: options.root });
