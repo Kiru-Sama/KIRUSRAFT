@@ -203,6 +203,38 @@ export function apply(ctx: Context, config: Config): void {
     return bubble;
   }
 
+  // 切换会话（kernel-gui 会话 tab 触发的事件）
+  async function switchSession(id: string): Promise<void> {
+    try {
+      const loaded = await ctx.storage.getConversation(id);
+      if (!loaded || !loaded.node || !Array.isArray(loaded.node.messages)) {
+        logger.error('storage', `切换会话失败（数据损坏）: ${id}`);
+        return;
+      }
+      session = loaded;
+      msgEl.innerHTML = '';
+      for (const m of session.node.messages) {
+        msgEl.appendChild(renderMessage(m.role, m.parts));
+      }
+      msgEl.scrollTop = msgEl.scrollHeight;
+      logger.info('gui', `已切换到会话 ${id}（${session.node.messages.length} 条消息）`);
+    } catch (error) {
+      logger.error('storage', `切换会话失败: ${String(error)}`);
+    }
+  }
+
+  ctx.on('session-switch', (id: unknown) => {
+    void switchSession(String(id));
+  });
+  ctx.on('session-deleted', (id: unknown) => {
+    if (session.id === String(id)) {
+      session = createSession();
+      msgEl.innerHTML = '';
+      void ctx.storage.saveConversation(session);
+      logger.info('gui', '当前会话已删除，已新建会话');
+    }
+  });
+
   // 启动加载最近会话（IndexedDB 持久化，关 App 不丢）
   void (async () => {
     try {

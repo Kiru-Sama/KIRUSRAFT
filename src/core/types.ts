@@ -3,6 +3,14 @@
  * 参考 RikkaHub：Tool 六字段契约、UIMessagePart 贯穿内核/UI/线上
  */
 
+/** 跨插件事件词汇（扩展 Cordis Events 接口） */
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'session-switch'(id: string): void;
+    'session-deleted'(id: string): void;
+  }
+}
+
 /** 消息部件：模型回传与 UI 渲染共用（Text/Image 双用途） */
 export type UIMessagePart =
   | { type: 'text'; text: string }

@@ -8,7 +8,8 @@ import * as CoreServices from './plugins/core-services';
 import * as ProviderDeepseek from './plugins/provider-deepseek';
 import * as ToolTime from './plugins/tool-time';
 import * as FallbackGui from './plugins/fallback-gui';
-import * as PluginOverview from './plugins/plugin-overview';
+import * as KernelGui from './plugins/kernel-gui';
+import * as UpdateChecker from './plugins/update-checker';
 import * as Deconstruction from './plugins/deconstruction';
 
 export interface BootstrapOptions {
@@ -30,8 +31,11 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   // 工具插件：get_time_info（本地工具验证 agent 循环）
   await ctx.plugin(ToolTime);
 
-  // 插件总览：右下角按钮 + 面板，展示插件/工具/服务商
-  await ctx.plugin(PluginOverview);
+  // 内核中心：管理界面（6 tab 全屏面板），替换旧 plugin-overview
+  await ctx.plugin(KernelGui);
+
+  // 更新检测：check_update 工具 + 下载 APK
+  await ctx.plugin(UpdateChecker);
 
   // 兜底 GUI：内核自带，永远挂载（保证有界面）
   await ctx.plugin(FallbackGui, { root: options.root });
