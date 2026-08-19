@@ -7,7 +7,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { logger } from '../core/logger';
 import { createSession } from '../core/session';
-import { fetchLatestRelease, downloadApk, isNewer, CURRENT_VERSION } from './update-checker';
+import { fetchLatestRelease, downloadApk, isNewer, CURRENT_VERSION, lastFetchError } from './update-checker';
 import type { Session } from '../core/types';
 
 export const name = 'kernel-gui';
@@ -53,7 +53,12 @@ export function apply(ctx: Context): void {
   let activeTab: Tab = '总览';
 
   function esc(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function renderTabNav(): string {
@@ -143,14 +148,6 @@ export function apply(ctx: Context): void {
 
   function renderConfig(): string {
     const sections = ctx.config.list();
-    const ids: string[] = [];
-    const html = sections
-      .map((s) => {
-        ids.push(s.namespace);
-        return `<div data-kcfg="${s.namespace}"></div>`;
-      })
-      .join('');
-    // 渲染后需要为每个分节调用 render 回调（在 renderPanel 后执行）
     return `
       <div style="padding:20px;">
         ${sections
@@ -179,7 +176,7 @@ export function apply(ctx: Context): void {
           ${entries
             .map((e) => {
               const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
-              return `[${t}] ${e.level.toUpperCase()} [${e.source}] ${esc(e.message)}`;
+              return `[${t}] ${esc(e.level.toUpperCase())} [${esc(e.source)}] ${esc(e.message)}`;
             })
             .join('\n')}
         </div>
@@ -239,10 +236,12 @@ export function apply(ctx: Context): void {
       void checkUpdate();
     });
 
-    // 配置 tab：为每个分节调用 render 回调
+    // 配置 tab：为每个分节调用 render 回调（用 dataset 匹配，避免选择器转义问题）
     if (activeTab === '配置') {
       for (const section of ctx.config.list()) {
-        const container = panel.querySelector(`[data-kcfg="${section.namespace}"]`);
+        const container = [...panel.querySelectorAll<HTMLElement>('[data-kcfg]')].find(
+          (el) => el.dataset.kcfg === section.namespace,
+        );
         if (container && section.render) {
           section.render(
             container as HTMLElement,
@@ -263,14 +262,21 @@ export function apply(ctx: Context): void {
     const resultEl = panel.querySelector('[data-kupdate="result"]') as HTMLElement | null;
     if (resultEl) resultEl.textContent = '检查中...';
     const latest = await fetchLatestRelease();
+    // await 后重新查询（DOM 可能已重建），失效则放弃
+    const currentEl = panel.querySelector('[data-kupdate="result"]') as HTMLElement | null;
+    if (!currentEl || !currentEl.isConnected) return;
     if (!latest || !latest.tagName) {
-      if (resultEl) resultEl.textContent = '检查失败：无法访问 GitHub（网络受限）';
+      currentEl.textContent = `检查失败：${lastFetchError || '无法访问 GitHub'}`;
       return;
     }
     if (isNewer(latest.tagName, CURRENT_VERSION)) {
-      if (resultEl) resultEl.innerHTML = `发现新版本 <strong style="color:#4f6ef7;">${esc(latest.tagName)}</strong>`;
-      if (latest.apkUrl && resultEl) {
+      currentEl.innerHTML = `发现新版本 <strong style="color:#4f6ef7;">${esc(latest.tagName)}</strong>`;
+      if (latest.apkUrl) {
+        // 重复点击时先清空旧按钮（L2）
+        const oldBtn = currentEl.querySelector<HTMLElement>('[data-kdl]');
+        if (oldBtn) oldBtn.remove();
         const dlBtn = document.createElement('button');
+        dlBtn.dataset.kdl = '1';
         dlBtn.textContent = '下载 APK';
         dlBtn.style.cssText = 'margin-top:8px;padding:8px 16px;background:#1a9e6b;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;';
         dlBtn.addEventListener('click', () => {
@@ -288,38 +294,45 @@ export function apply(ctx: Context): void {
             document.body.appendChild(a);
             a.click();
             a.remove();
-            URL.revokeObjectURL(url);
+            // 延迟释放 Blob URL，避免下载未完成就被回收（M1）
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
             dlBtn.textContent = '已下载';
           })();
         });
-        resultEl.appendChild(dlBtn);
+        currentEl.appendChild(dlBtn);
       }
     } else {
-      if (resultEl) resultEl.textContent = `已是最新版本（远端 ${latest.tagName}）`;
+      currentEl.textContent = `已是最新版本（远端 ${latest.tagName}）`;
     }
   }
 
   async function renderSessionList(): Promise<void> {
+    const sessions = await ctx.storage.listConversations();
+    // await 后重新查询（DOM 可能已重建），失效则放弃
     const container = panel.querySelector('[data-ksessions]') as HTMLElement | null;
-    if (!container) return;
+    if (!container || !container.isConnected) return;
     try {
-      const sessions = await ctx.storage.listConversations();
       if (sessions.length === 0) {
         container.innerHTML = `<div style="color:#8a90a0;margin-bottom:12px;">（无会话）</div>`;
       } else {
         container.innerHTML = sessions
           .map(
-            (s) => `
+            (s) => {
+              const valid = !!s.node && Array.isArray(s.node.messages);
+              const count = valid ? s.node.messages.length : 0;
+              const badge = valid ? '' : ' <span style="color:#e5484d;font-size:11px;">[损坏]</span>';
+              return `
             <div style="background:#fff;border:1px solid #ececf1;border-radius:12px;padding:12px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
               <div style="min-width:0;">
-                <div style="font-size:14px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.title || '新对话')}</div>
-                <div style="font-size:12px;color:#8a90a0;margin-top:2px;">${s.node.messages.length} 条消息 · ${new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false })}</div>
+                <div style="font-size:14px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.title || '新对话')}${badge}</div>
+                <div style="font-size:12px;color:#8a90a0;margin-top:2px;">${count} 条消息 · ${new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false })}</div>
               </div>
               <div style="flex-shrink:0;display:flex;gap:6px;">
                 <button data-kswitch="${esc(s.id)}" style="background:#4f6ef7;color:#fff;border:none;padding:5px 12px;border-radius:8px;cursor:pointer;font-size:12px;">切换</button>
                 <button data-kdelete="${esc(s.id)}" style="background:#fff;color:#e5484d;border:1px solid #f3c1c4;padding:5px 12px;border-radius:8px;cursor:pointer;font-size:12px;">删除</button>
               </div>
-            </div>`,
+            </div>`;
+            },
           )
           .join('');
       }

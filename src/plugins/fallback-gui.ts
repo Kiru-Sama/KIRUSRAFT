@@ -205,6 +205,12 @@ export function apply(ctx: Context, config: Config): void {
 
   // 切换会话（kernel-gui 会话 tab 触发的事件）
   async function switchSession(id: string): Promise<void> {
+    // 中止进行中的流并立即落盘旧会话，避免切换后 AI 回复串写到新会话
+    if (abortCtrl) {
+      abortCtrl.abort();
+      abortCtrl = null;
+      saveSessionSafe();
+    }
     try {
       const loaded = await ctx.storage.getConversation(id);
       if (!loaded || !loaded.node || !Array.isArray(loaded.node.messages)) {
@@ -228,6 +234,11 @@ export function apply(ctx: Context, config: Config): void {
   });
   ctx.on('session-deleted', (id: unknown) => {
     if (session.id === String(id)) {
+      // 中止进行中的流，避免删除后旧回复串写
+      if (abortCtrl) {
+        abortCtrl.abort();
+        abortCtrl = null;
+      }
       session = createSession();
       msgEl.innerHTML = '';
       void ctx.storage.saveConversation(session);

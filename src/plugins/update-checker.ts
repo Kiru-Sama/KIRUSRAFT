@@ -11,7 +11,8 @@ export const inject = ['tools'];
 
 const REPO_OWNER = 'Kiru-Sama';
 const REPO_NAME = 'KIRUSRAFT';
-export const CURRENT_VERSION = '0.0.9';
+// 注意：升版本号时需同步更新此处（与 capacitor.config.ts / build.gradle 的 versionName 保持一致）
+export const CURRENT_VERSION = '0.0.10';
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
 interface ReleaseInfo {
@@ -22,13 +23,23 @@ interface ReleaseInfo {
   publishedAt: string;
 }
 
-/** 拉取最新 release 信息，失败返回 null（由调用方提示） */
+/** 最近一次 fetch 失败的原因（供调用方显示更具体的提示） */
+export let lastFetchError = '';
+
+/** 拉取最新 release 信息，失败返回 null（由调用方读 lastFetchError 提示） */
 export async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
+  lastFetchError = '';
   try {
     const res = await fetch(RELEASES_API, {
       headers: { accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status === 404) lastFetchError = '仓库不存在或无 release（404）';
+      else if (res.status === 403) lastFetchError = 'API 限流（403），请稍后重试';
+      else lastFetchError = `GitHub API 错误（HTTP ${res.status}）`;
+      return null;
+    }
     const data = (await res.json()) as {
       tag_name?: string;
       name?: string;
@@ -45,6 +56,7 @@ export async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
       publishedAt: data.published_at ?? '',
     };
   } catch {
+    lastFetchError = '网络不可达';
     return null;
   }
 }
@@ -68,10 +80,11 @@ export function isNewer(latest: string, current: string): boolean {
 /** 下载 APK 到 Blob，返回 Blob 与文件名 */
 export async function downloadApk(url: string): Promise<{ blob: Blob; filename: string } | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
     if (!res.ok) return null;
     const blob = await res.blob();
-    const filename = url.split('/').pop() ?? 'KIRUSRAFT-update.apk';
+    const seg = url.split('/').pop() ?? '';
+    const filename = seg.split(/[?#]/)[0] || 'KIRUSRAFT-update.apk';
     return { blob, filename };
   } catch {
     return null;
