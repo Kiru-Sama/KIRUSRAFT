@@ -245,6 +245,7 @@ export function apply(ctx: Context): void {
         <div style="font-size:13px;color:#5a6172;margin-bottom:6px;">类型：${kindLabel}</div>
         <div style="font-size:13px;color:#5a6172;">依赖服务：</div>
         <div style="margin-top:2px;">${deps}</div>
+        <button data-kdetailcfg style="margin-top:12px;padding:7px 14px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;">打开配置</button>
       </div>`;
   }
 
@@ -395,6 +396,11 @@ export function apply(ctx: Context): void {
     });
     panel.querySelector('[data-kdetailclose]')?.addEventListener('click', () => {
       selectedPlugin = null;
+      renderPanel();
+    });
+    // 详情抽屉：打开配置（切到配置 tab）
+    panel.querySelector('[data-kdetailcfg]')?.addEventListener('click', () => {
+      activeTab = '配置';
       renderPanel();
     });
 
