@@ -12,9 +12,9 @@ import { VERSION as CURRENT_VERSION } from '../core/version';
 import type { Session } from '../core/types';
 
 export const name = 'kernel-gui';
-export const inject = ['tools', 'providers', 'config', 'storage'];
+export const inject = ['tools', 'providers', 'config', 'storage', 'topology'];
 
-const TABS = ['总览', '插件', '服务与工具', '配置', '会话存储', '日志'] as const;
+const TABS = ['总览', '空间站', '服务与工具', '配置', '会话存储', '日志'] as const;
 type Tab = (typeof TABS)[number];
 
 interface FiberLike {
@@ -102,28 +102,94 @@ export function apply(ctx: Context): void {
       </div>`;
   }
 
-  function renderPlugins(): string {
-    const runtimes = [...(ctx.registry.values() as unknown as RuntimeLike[])];
-    if (runtimes.length === 0) return `<div style="padding:20px;color:#8a90a0;">（无插件）</div>`;
-    return `
-      <div style="padding:20px;">
-        ${runtimes
-          .map((r) => {
-            const fiberCount = r.fibers?.length ?? 0;
-            const first = r.fibers?.[0] as FiberLike | undefined;
-            const state = first?.state ?? (fiberCount > 0 ? 2 : 4);
-            const stateLabel = FIBER_STATE_LABEL[state] ?? '未知';
-            const stateColor = state === 2 ? '#1a9e6b' : state === 3 ? '#e5484d' : '#8a90a0';
-            return `<div style="background:#fff;border:1px solid #ececf1;border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="font-size:14px;font-weight:600;color:#1f2328;">${esc(r.name ?? '(匿名)')}</div>
-                <div style="font-size:12px;color:#8a90a0;margin-top:2px;">${fiberCount} 个实例</div>
-              </div>
-              <span style="font-size:12px;padding:3px 10px;border-radius:999px;background:${stateColor}18;color:${stateColor};">${stateLabel}</span>
-            </div>`;
-          })
-          .join('')}
+  function renderTopology(): string {
+    const topo = ctx.topology.getTopology();
+    const modules = topo.nodes.filter((n) => n.kind !== 'core');
+    if (modules.length === 0) return `<div style="padding:20px;color:#8a90a0;">（无插件）</div>`;
+
+    // 固定径向布局参数
+    const W = 340;
+    const H = 440;
+    const cx = W / 2;
+    const cy = H / 2;
+    const coreR = 44;
+    const portR = 76;
+    const moduleR = 158;
+
+    // 端口位置（核心舱圆周，等角度）
+    const portPos = topo.ports.map((p, i) => {
+      const angle = (-90 + (i * 360) / topo.ports.length) * (Math.PI / 180);
+      return { name: p.name, color: p.color, x: cx + portR * Math.cos(angle), y: cy + portR * Math.sin(angle) };
+    });
+
+    // 舱段位置（环绕核心舱，等角度）
+    const modulePos = modules.map((n, i) => {
+      const angle = (-90 + (i * 360) / Math.max(modules.length, 1)) * (Math.PI / 180);
+      return { node: n, x: cx + moduleR * Math.cos(angle), y: cy + moduleR * Math.sin(angle) };
+    });
+
+    const stateColor = (code: number) => (code === 2 ? '#1a9e6b' : code === 3 ? '#e5484d' : code === 0 || code === 1 ? '#e8912d' : '#8a90a0');
+
+    // SVG 连线：端口 → 舱段（供给管线）
+    const edgesSvg = topo.edges
+      .map((e) => {
+        const from = portPos.find((p) => p.name === e.fromPort);
+        const to = modulePos.find((m) => m.node.id === e.toNode);
+        if (!from || !to) return '';
+        const color = topo.ports.find((p) => p.name === e.fromPort)?.color ?? '#888';
+        const stroke = e.status === 'failed' ? '#e5484d' : color;
+        const dash = e.status === 'active' ? '' : e.status === 'failed' ? ' stroke-dasharray="4 4"' : ' stroke-dasharray="2 4"';
+        const opacity = e.status === 'active' ? 0.75 : 0.45;
+        const mx = (from.x + to.x) / 2;
+        const my = (from.y + to.y) / 2;
+        return `<path d="M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}" stroke="${stroke}" stroke-width="2" fill="none" opacity="${opacity}"${dash}/>`;
+      })
+      .join('');
+
+    // 核心舱
+    const coreHtml = `
+      <div style="position:absolute;left:${cx - coreR}px;top:${cy - coreR}px;width:${coreR * 2}px;height:${coreR * 2}px;border-radius:50%;background:#1f2328;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(31,35,40,.35);z-index:2;">
+        <div style="text-align:center;">
+          <div style="font-size:13px;font-weight:600;">内核</div>
+          <div style="font-size:10px;opacity:.7;">核心舱</div>
+        </div>
       </div>`;
+
+    // 端口
+    const portsHtml = portPos
+      .map(
+        (p) => `
+      <div style="position:absolute;left:${p.x - 9}px;top:${p.y - 9}px;width:18px;height:18px;border-radius:50%;background:${p.color};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.2);z-index:3;" title="${p.name}"></div>
+      <div style="position:absolute;left:${p.x - 20}px;top:${p.y + 12}px;width:40px;text-align:center;font-size:10px;color:#5a6172;z-index:3;">${p.name}</div>`,
+      )
+      .join('');
+
+    // 舱段
+    const modulesHtml = modulePos
+      .map((m) => {
+        const sc = stateColor(m.node.stateCode);
+        const isTheme = m.node.kind === 'theme';
+        return `
+      <div style="position:absolute;left:${m.x - 52}px;top:${m.y - 22}px;width:104px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;${isTheme ? 'opacity:.85;border-style:dashed;' : ''}">
+        <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.node.name)}</div>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${sc};"></span>
+          <span style="font-size:10px;color:${sc};">${esc(m.node.state)}</span>
+        </div>
+      </div>`;
+      })
+      .join('');
+
+    return `
+      <div style="padding:10px;display:flex;justify-content:center;">
+        <div style="position:relative;width:${W}px;height:${H}px;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
+          <svg width="${W}" height="${H}" style="position:absolute;inset:0;">${edgesSvg}</svg>
+          ${coreHtml}
+          ${portsHtml}
+          ${modulesHtml}
+        </div>
+      </div>
+      <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站只读视图 · 核心舱 + 4 服务端口 + ${modules.length} 个插件舱段</div>`;
   }
 
   function renderServices(): string {
@@ -188,8 +254,8 @@ export function apply(ctx: Context): void {
     switch (activeTab) {
       case '总览':
         return renderOverview();
-      case '插件':
-        return renderPlugins();
+      case '空间站':
+        return renderTopology();
       case '服务与工具':
         return renderServices();
       case '配置':
