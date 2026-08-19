@@ -42,6 +42,8 @@ export function apply(ctx: Context): void {
   let activeTab: Tab = '总览';
   /** 空间站图选中的插件（详情抽屉用） */
   let selectedPlugin: string | null = null;
+  /** 拖拽刚结束标记：抑制紧随其后的 click（否则拖完会误开详情抽屉） */
+  let suppressDetailClick = false;
 
   function esc(s: string): string {
     return s
@@ -189,16 +191,16 @@ export function apply(ctx: Context): void {
       })
       .join('');
 
-    // 核心舱
+    // 核心舱（data-kcore：拖拽贴靠的命中目标）
     const coreHtml = `
-      <div style="position:absolute;left:${cx - coreR}px;top:${cy - coreR}px;width:${coreR * 2}px;height:${coreR * 2}px;border-radius:50%;background:#1f2328;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(31,35,40,.35);z-index:2;">
+      <div data-kcore style="position:absolute;left:${cx - coreR}px;top:${cy - coreR}px;width:${coreR * 2}px;height:${coreR * 2}px;border-radius:50%;background:#1f2328;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(31,35,40,.35);z-index:2;">
         <div style="text-align:center;">
           <div style="font-size:13px;font-weight:600;">内核</div>
           <div style="font-size:10px;opacity:.7;">核心舱</div>
         </div>
       </div>`;
 
-    // 舱段卡片（贴靠核心 / 贴靠已贴靠插件的都算已加载）
+    // 舱段卡片（贴靠核心 / 贴靠已贴靠插件的都算已加载；data-kdrag = 可拖拽贴靠）
     const cardHtml = (m: TopologyNode, x: number, y: number, style: string, width: number) => {
       const sc = stateColor(m.stateCode);
       const protectedP = ctx.topology.isProtected(m.id);
@@ -207,7 +209,7 @@ export function apply(ctx: Context): void {
         ? 'margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;background:#eef0f5;color:#8a90a0;'
         : `margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;background:${m.stateCode === 2 ? '#fdecec;color:#e5484d' : '#e8f4ef;color:#1a9e6b'};`;
       return `
-      <div data-kdetail="${esc(m.id)}" style="position:absolute;left:${x - width / 2}px;top:${y - 24}px;width:${width}px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;cursor:pointer;${style}">
+      <div data-kdetail="${esc(m.id)}" data-kdrag="${esc(m.id)}" data-kdocked="1" style="position:absolute;left:${x - width / 2}px;top:${y - 24}px;width:${width}px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;cursor:${protectedP ? 'pointer' : 'grab'};${style}">
         <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.name)}">${esc(m.name)}</div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${sc};"></span>
@@ -227,13 +229,13 @@ export function apply(ctx: Context): void {
     const undockedHtml =
       undocked.length > 0
         ? `<div style="margin-top:10px;padding:0 4px;">
-             <div style="font-size:11px;color:#8a90a0;margin-bottom:6px;">未加载区（${undocked.length}）· 修复或启用后自动贴靠核心</div>
+             <div style="font-size:11px;color:#8a90a0;margin-bottom:6px;">未加载区（${undocked.length}）· 拖到核心或点启用加载</div>
              <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">
                ${undocked
                  .map((m) => {
                    const sc = stateColor(m.stateCode);
                    const protectedP = ctx.topology.isProtected(m.id);
-                   return `<div data-kdetail="${esc(m.id)}" style="flex:0 0 96px;background:#fafbfc;border:2px dashed ${sc};border-radius:10px;padding:6px 8px;cursor:pointer;">
+                   return `<div data-kdetail="${esc(m.id)}" data-kdrag="${esc(m.id)}" style="flex:0 0 96px;background:#fafbfc;border:2px dashed ${sc};border-radius:10px;padding:6px 8px;cursor:${protectedP ? 'pointer' : 'grab'};">
                      <div style="font-size:11px;font-weight:600;color:#5a6172;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.name)}">${esc(m.name)}</div>
                      <div style="display:flex;align-items:center;gap:4px;margin-top:3px;">
                        <span style="width:7px;height:7px;border-radius:50%;background:${sc};"></span>
@@ -248,8 +250,8 @@ export function apply(ctx: Context): void {
         : '';
 
     return `
-      <div style="padding:10px;overflow-x:auto;">
-        <div style="position:relative;width:${W}px;height:${H}px;margin:0 auto;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
+      <div data-kstation style="padding:10px;overflow-x:auto;">
+        <div data-kcanvas style="position:relative;width:${W}px;height:${H}px;margin:0 auto;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
           ${edgesSvg ? `<svg width="${W}" height="${H}" style="position:absolute;inset:0;pointer-events:none;">${edgesSvg}</svg>` : ''}
           ${coreHtml}
           ${modulesHtml}
@@ -257,7 +259,120 @@ export function apply(ctx: Context): void {
         ${undockedHtml}
       </div>
       ${renderPluginDetail()}
-      <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站 · 贴靠核心 = 已加载（${active.length}）· 过桥管线 ${topo.edges.length} 条 · 未加载 ${undocked.length}</div>`;
+      <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站 · 拖卡片到核心=启用，拖离核心=禁用 · 贴靠 = 已加载（${active.length}）· 未加载 ${undocked.length} · 过桥管线 ${topo.edges.length}</div>`;
+  }
+
+  /** 拖拽贴靠（P5）：拖卡到核心=启用，拖离=禁用；纯点击走详情抽屉 */
+  function bindDrag(container: HTMLElement): void {
+    interface DragState {
+      id: string;
+      el: HTMLElement;
+      startX: number;
+      startY: number;
+      moved: boolean;
+      wasDocked: boolean;
+    }
+    let drag: DragState | null = null;
+
+    const clear = (): void => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      d.el.style.touchAction = '';
+      d.el.style.userSelect = '';
+      d.el.style.position = '';
+      d.el.style.left = '';
+      d.el.style.top = '';
+      d.el.style.width = '';
+      d.el.style.zIndex = '';
+      d.el.style.boxShadow = '';
+      d.el.style.transition = '';
+    };
+
+    container.addEventListener('pointerdown', (e) => {
+      if (drag) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      // 点启停/其他按钮时不进入拖拽
+      if ((e.target as HTMLElement).closest('button')) return;
+      const card = (e.target as HTMLElement).closest<HTMLElement>('[data-kdrag]');
+      if (!card) return;
+      const id = card.dataset.kdrag;
+      if (!id || ctx.topology.isProtected(id)) return;
+      const rect = card.getBoundingClientRect();
+      drag = {
+        id,
+        el: card,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        wasDocked: card.dataset.kdocked === '1',
+      };
+      // 拖拽期间禁止滚动/文本选择
+      card.style.touchAction = 'none';
+      card.style.userSelect = 'none';
+      card.style.position = 'fixed';
+      card.style.left = rect.left + 'px';
+      card.style.top = rect.top + 'px';
+      card.style.width = rect.width + 'px';
+      card.style.zIndex = '999';
+      card.style.boxShadow = '0 8px 24px rgba(0,0,0,.28)';
+      card.style.transition = 'none';
+      card.setPointerCapture?.(e.pointerId);
+      e.preventDefault();
+    });
+
+    container.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) > 6) drag.moved = true;
+      if (drag.moved) {
+        const r = drag.el.getBoundingClientRect();
+        drag.el.style.left = e.clientX - r.width / 2 + 'px';
+        drag.el.style.top = e.clientY - r.height / 2 + 'px';
+      }
+    });
+
+    container.addEventListener('pointerup', (e) => {
+      if (!drag) return;
+      const d = drag;
+      clear();
+      if (!d.moved) return; // 纯点击：交给 data-kdetail 的 click 打开详情
+      suppressDetailClick = true; // 拖完不触发详情抽屉
+      const coreEl = container.querySelector('[data-kcore]') as HTMLElement | null;
+      if (!coreEl) return;
+      const cr = coreEl.getBoundingClientRect();
+      const ccx = cr.left + cr.width / 2;
+      const ccy = cr.top + cr.height / 2;
+      const dist = Math.hypot(e.clientX - ccx, e.clientY - ccy);
+      const cardW = cr.width / 2 + 40;
+      const nearCore = dist < cr.width / 2 + cardW / 2 + 30;
+      const farFromCore = dist > cr.width / 2 + cardW + 40;
+      void (async () => {
+        // 按当前实际状态执行，避免状态漂移导致误操作
+        const node = ctx.topology.getTopology().nodes.find((n) => n.id === d.id);
+        const isActive = node?.stateCode === 2;
+        if (nearCore && !isActive) {
+          await toggleFromDrag(d.id);
+        } else if (d.wasDocked && isActive && farFromCore) {
+          await toggleFromDrag(d.id);
+        }
+        renderPanel();
+      })();
+    });
+
+    container.addEventListener('pointercancel', () => {
+      if (!drag) return;
+      clear();
+      renderPanel();
+    });
+  }
+
+  async function toggleFromDrag(name: string): Promise<void> {
+    const r = await ctx.topology.togglePlugin(name);
+    if (!r.ok) {
+      logger.error('topology', r.message ?? `拖拽切换 ${name} 失败`);
+    }
   }
 
   /** 详情抽屉：点击舱段卡片后展示插件详情 */
@@ -429,13 +544,20 @@ export function apply(ctx: Context): void {
       });
     });
 
-    // 空间站 tab：点击舱段卡片打开详情抽屉
+    // 空间站 tab：点击舱段卡片打开详情抽屉（拖拽刚结束时抑制一次）
     panel.querySelectorAll<HTMLElement>('[data-kdetail]').forEach((el) => {
       el.addEventListener('click', () => {
+        if (suppressDetailClick) {
+          suppressDetailClick = false;
+          return;
+        }
         selectedPlugin = el.dataset.kdetail ?? null;
         renderPanel();
       });
     });
+    // 空间站 tab：拖拽贴靠（拖到核心=启用 / 拖离=禁用）
+    const stationEl = panel.querySelector<HTMLElement>('[data-kstation]');
+    if (stationEl) bindDrag(stationEl);
     panel.querySelector('[data-kdetailclose]')?.addEventListener('click', () => {
       selectedPlugin = null;
       renderPanel();
