@@ -104,6 +104,20 @@ export function apply(ctx: Context): void {
           <div data-kupdate="result" style="font-size:13px;color:#5a6172;margin-top:8px;"></div>
           <button data-kcheckupdate style="margin-top:10px;padding:8px 16px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;">检查更新</button>
         </div>
+        <div style="background:#fff;border:1px solid #ececf1;border-radius:14px;padding:16px;margin-top:16px;">
+          <div style="font-size:14px;font-weight:600;color:#1f2328;margin-bottom:8px;">主题</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button data-ktheme="" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid #d9dce3;background:#fff;color:#3c4353;">默认</button>
+            ${ctx.topology
+              .getTopology()
+              .nodes.filter((n) => n.kind === 'theme')
+              .map(
+                (t) =>
+                  `<button data-ktheme="${esc(t.id)}" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${t.stateCode === 2 ? '#4f6ef7' : '#d9dce3'};background:${t.stateCode === 2 ? '#eef1ff' : '#fff'};color:${t.stateCode === 2 ? '#4f6ef7' : '#3c4353'};">${esc(t.name)}</button>`,
+              )
+              .join('')}
+          </div>
+        </div>
       </div>`;
   }
 
@@ -311,6 +325,18 @@ export function apply(ctx: Context): void {
     // 总览 tab：检查更新按钮
     panel.querySelector('[data-kcheckupdate]')?.addEventListener('click', () => {
       void checkUpdate();
+    });
+
+    // 总览 tab：主题切换（P3）
+    panel.querySelectorAll<HTMLButtonElement>('[data-ktheme]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const theme = el.dataset.ktheme ?? '';
+        const r = await ctx.topology.switchTheme(theme);
+        if (!r.ok) {
+          logger.error('topology', r.message ?? '切换主题失败');
+        }
+        renderPanel();
+      });
     });
 
     // 空间站 tab：插件启停开关

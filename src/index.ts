@@ -25,6 +25,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   // 内核服务（工具注册表 + 服务商注册表），最先挂载
   await ctx.plugin(CoreServices);
 
+  // ui 配置分节：当前主题（持久化，P3）
+  ctx.config.register(ctx, { namespace: 'ui', displayName: '界面', defaults: { theme: '' } });
+
+  // 主题恢复：读 config.ui.theme 挂载对应主题（上次选的主题下次还在）
+  const theme = String(ctx.config.get('ui').theme ?? '');
+  if (theme === 'ui-deconstruction') {
+    await ctx.plugin(Deconstruction, { enabled: true });
+  }
+
   // 服务商插件：DeepSeek 官方标准（Responses API）
   await ctx.plugin(ProviderDeepseek);
 
@@ -39,11 +48,6 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
 
   // 兜底 GUI：内核自带，永远挂载（保证有界面）
   await ctx.plugin(FallbackGui, { root: options.root });
-
-  // UI 插件：显式指定才挂载（APITOOL 解构风等）
-  if (options.uiPlugin === 'deconstruction') {
-    await ctx.plugin(Deconstruction, { enabled: true });
-  }
 
   return ctx;
 }

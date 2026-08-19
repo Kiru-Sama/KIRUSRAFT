@@ -153,6 +153,30 @@ export class TopologyService extends Service {
     return { ok: true };
   }
 
+  /**
+   * 切换 UI 主题（P3）：禁用当前激活主题 → 启用目标主题 → 持久化 config.ui.theme。
+   * themeName 传 '' 表示恢复默认（无主题插件）。
+   */
+  async switchTheme(themeName: string): Promise<{ ok: boolean; message?: string }> {
+    const topo = this.getTopology();
+    // 当前激活的主题（kind=theme 且 stateCode=2）
+    const activeThemes = topo.nodes.filter((n) => n.kind === 'theme' && n.stateCode === 2);
+    // 1. 禁用旧主题（除目标外）
+    for (const t of activeThemes) {
+      if (t.id === themeName) continue;
+      const r = await this.togglePlugin(t.id);
+      if (!r.ok) return r;
+    }
+    // 2. 启用目标主题（如果存在且未激活）
+    if (themeName && !activeThemes.some((t) => t.id === themeName)) {
+      const r = await this.togglePlugin(themeName);
+      if (!r.ok) return r;
+    }
+    // 3. 持久化
+    this.ctx.config.set('ui', { theme: themeName });
+    return { ok: true };
+  }
+
   private build(): Topology {
     const nodes: TopologyNode[] = [];
     const edges: TopologyEdge[] = [];

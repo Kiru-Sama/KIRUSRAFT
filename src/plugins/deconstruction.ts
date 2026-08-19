@@ -6,6 +6,8 @@
 import { Context } from '@deepseek-ai/cordis';
 
 export const name = 'ui-deconstruction';
+/** UI 主题插件元数据（P3）：标记这是可运行时切换的主题插件 */
+export const kind = 'ui-theme';
 
 export interface Config {
   /** 默认启用 */
