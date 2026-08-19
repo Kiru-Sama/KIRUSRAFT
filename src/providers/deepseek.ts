@@ -197,7 +197,4 @@ export const DeepSeekProvider: ChatProvider = {
   id: 'deepseek',
   displayName: 'DeepSeek 官方',
   streamChat,
-  available() {
-    return true;
-  },
 };

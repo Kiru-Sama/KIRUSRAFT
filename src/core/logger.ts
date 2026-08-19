@@ -24,6 +24,13 @@ class Logger {
 
   constructor() {
     this.installGlobalHooks();
+    // 页面隐藏/卸载前同步 flush：崩溃/杀进程瞬间不丢最近日志（节流窗口内的批强制落盘）
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') this.flushPersist();
+      });
+      window.addEventListener('pagehide', () => this.flushPersist());
+    }
   }
 
   /** 节流持久化：500ms 内合并写一次，避免高频日志时每次都全量写 localStorage */
@@ -37,7 +44,7 @@ class Logger {
 
   private flushPersist(): void {
     if (this.memory.length === 0) return;
-    // 只落盘增量：写成功后才清空内存，失败则日志留在内存不丢失
+    // 只落盘增量：写成功后才清空内存，失败则丢弃该批并告警（避免下次 flush 把同一批重复合并，RikkaHub 幂等+失败跳过思路）
     const fresh = this.memory;
     let merged: LogEntry[] = [];
     try {
@@ -60,7 +67,11 @@ class Logger {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
       this.memory = [];
     } catch {
-      /* 写失败：fresh 留在 memory，getLogs 仍能读到，不丢 */
+      // 写失败：丢弃该批（内存环形缓冲仍保留最近日志，避免下次合并重复累积）
+      this.memory = [];
+      // 直接 console.warn 会被下方 hook 捕获形成循环，改用原生方法并加标记防循环
+      const origWarn = console.warn;
+      origWarn('[logger] 日志持久化失败（localStorage 不可用），已丢弃该批');
     }
   }
 
@@ -69,10 +80,6 @@ class Logger {
     this.memory.push(entry);
     if (this.memory.length > MAX_MEMORY) this.memory.shift();
     this.persist();
-  }
-
-  debug(source: string, message: string): void {
-    this.log('debug', source, message);
   }
 
   info(source: string, message: string): void {

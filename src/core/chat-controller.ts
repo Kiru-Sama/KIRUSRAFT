@@ -1,13 +1,18 @@
 /**
- * 聊天控制器（v0.0.19）
+ * 聊天控制器（v0.0.20）
  * 兜底 GUI 与主题 GUI 共用的聊天状态机：会话加载/切换、流式发送/中止、IndexedDB 落盘。
  * GUI 只提供元素引用与消息渲染回调，流式/事件/落盘逻辑全部收敛在这里（效果不变、实现复用）。
+ * v0.0.20 增量（向后兼容，不破坏 ChatElements 既有契约）：
+ *   - renderMessage 增加可选第三参 message（GUI 可拿 createdAt/id 渲染元信息）
+ *   - 流式写入优先落在气泡内的 [data-msg-content] 容器（GUI 可保留 meta 区），无容器时回退整气泡 textContent
+ *   - 新增可选 onStreamEnd 回调：每次流结束（成功/错误/中止/兜底）后触发一次，GUI 可做 Markdown 收尾渲染
+ *   - ChatController 新增 renameSession（改标题落盘）与 regenerate（截断重发）
  */
 import { Context } from '@deepseek-ai/cordis';
 import { runAgentLoop } from './agent-loop';
 import { appendMessage, createSession, toChatMessages } from './session';
 import { logger } from './logger';
-import type { Session, UIMessagePart, ProviderProfile } from './types';
+import type { Session, Message, UIMessagePart, ProviderProfile } from './types';
 
 export interface ChatElements {
   /** 消息列表容器 */
@@ -22,12 +27,14 @@ export interface ChatElements {
   status: HTMLElement;
   /** 联网搜索开关（可选） */
   webSearch?: HTMLInputElement;
-  /** 渲染一条消息气泡（GUI 自定义样式），返回的元素会被追加到消息列表 */
-  renderMessage: (role: 'user' | 'ai', parts: UIMessagePart[]) => HTMLElement;
+  /** 渲染一条消息气泡（GUI 自定义样式），返回的元素会被追加到消息列表；message 为完整消息时传第三参 */
+  renderMessage: (role: 'user' | 'ai', parts: UIMessagePart[], message?: Message) => HTMLElement;
   /** 缺 API Key / 服务商未注册时打开设置（可选） */
   onRequireSettings?: () => void;
   /** 会话变化回调（启动加载/切换/删除后触发，GUI 用来刷新侧边栏高亮） */
   onSessionChange?: (id: string) => void;
+  /** 流结束回调（成功/错误/中止后触发一次；GUI 可用于 Markdown 全量渲染等收尾） */
+  onStreamEnd?: () => void;
 }
 
 export interface ChatController {
@@ -39,6 +46,10 @@ export interface ChatController {
   switchSession(id: string): Promise<void>;
   /** 当前会话 id（侧边栏高亮用） */
   getSessionId(): string;
+  /** 修改当前会话标题并落盘 */
+  renameSession(title: string): void;
+  /** 重新生成：截断到最后一条用户消息，用其内容重新发送 */
+  regenerate(): void;
   /** 卸载：中止流并落盘（GUI effect 清理时调用） */
   dispose(): void;
 }
@@ -60,10 +71,23 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     });
   }
 
+  /**
+   * 流式写入气泡内容：优先写气泡内的 [data-msg-content] 容器（GUI 气泡可保留 meta 区不被覆盖），
+   * 无容器时整体回退 textContent（兼容纯文本气泡渲染器，如兜底 GUI）。
+   */
+  function setMessageContent(bubble: HTMLElement, text: string): void {
+    const target = bubble.querySelector('[data-msg-content]') as HTMLElement | null;
+    if (target) {
+      target.textContent = text;
+    } else {
+      bubble.textContent = text;
+    }
+  }
+
   function renderCurrent(): void {
     els.messages.innerHTML = '';
     for (const m of session.node.messages) {
-      els.messages.appendChild(els.renderMessage(m.role, m.parts));
+      els.messages.appendChild(els.renderMessage(m.role, m.parts, m));
     }
     els.messages.scrollTop = els.messages.scrollHeight;
   }
@@ -79,6 +103,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       streamToken++;
       els.send.style.display = '';
       els.stop.style.display = 'none';
+      els.status.textContent = ''; // P3：切换会话中止旧流后复位状态栏，避免残留"生成中"
       saveSessionSafe();
     }
     try {
@@ -143,29 +168,34 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     logger.info('gui', '当前会话已删除，已新建会话');
   });
 
-  async function send(): Promise<void> {
-    if (disposed || streaming) return;
+  /** 发送前置校验：返回可发送的文本（空串=不可发，原因已写入状态栏）。regenerate 截断前必须先过此关（P1-1：避免校验失败时数据已删） */
+  function validateSend(text: string): boolean {
+    if (disposed || streaming) return false;
     if (!loaded) {
       els.status.textContent = '正在加载会话...';
-      return;
+      return false;
     }
-    const text = els.input.value;
-    if (!text.trim()) return;
-    // 每次发送都读最新配置（config.set 会替换对象，闭包引用会失效）
+    if (!text.trim()) return false;
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     if (!currentProfile.apiKey) {
       els.status.textContent = '请先在设置中填写 API Key';
       logger.warn('gui', '发送被拒绝：未配置 API Key');
       els.onRequireSettings?.();
-      return;
+      return false;
     }
     const provider = ctx.providers.get(currentProfile.id);
     if (!provider) {
       els.status.textContent = `错误: 服务商 "${currentProfile.id}" 未注册`;
       logger.error('gui', `服务商 "${currentProfile.id}" 未注册`);
       els.onRequireSettings?.();
-      return;
+      return false;
     }
+    return true;
+  }
+
+  /** 发送一段文本（send 读输入框，regenerate 复用历史文本）；clearInput 控制是否清空输入框 */
+  async function sendText(text: string, clearInput = true): Promise<void> {
+    if (!validateSend(text)) return;
 
     streaming = true;
     const token = ++streamToken;
@@ -174,7 +204,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       appendMessage(session, 'user', [{ type: 'text', text }]);
       els.messages.appendChild(els.renderMessage('user', [{ type: 'text', text }]));
       saveSessionSafe();
-      els.input.value = '';
+      if (clearInput) els.input.value = '';
       els.messages.scrollTop = els.messages.scrollHeight;
 
       const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
@@ -189,6 +219,10 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       els.send.style.display = 'none';
       els.stop.style.display = '';
       els.status.textContent = '思考中...';
+
+      // validateSend 已校验通过，这里重新读取（config 可能已变，闭包里的旧引用会失效）
+      const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
+      const provider = ctx.providers.get(currentProfile.id)!;
 
       await runAgentLoop(
         {
@@ -212,7 +246,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             }
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
-            aiBubble.textContent = part.type === 'text' ? part.text : '';
+            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
             els.messages.scrollTop = els.messages.scrollHeight;
             els.status.textContent = '生成中...';
           },
@@ -232,6 +266,10 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           },
         },
       );
+    } catch (error) {
+      // 兜底：provider/工具异常直接冒泡时，走 onError 提示 + 落盘，避免 unhandled rejection 和状态栏卡死（RikkaHub errors 流思路）
+      els.status.textContent = `错误: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error('api', error instanceof Error ? error.message : String(error));
     } finally {
       // 只有自己还是最新流时才复位共享 UI 状态（旧流中止后新流已启动的场景，M1）
       if (token === streamToken) {
@@ -239,10 +277,16 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
         els.send.style.display = '';
         els.stop.style.display = 'none';
         abortCtrl = null;
+        // 流真正结束后才做收尾（Markdown 渲染等），避免增量期间被破坏
+        els.onStreamEnd?.();
       }
       // 无论成功/失败/中止，已生成的内容都要落盘（避免 UI 卡死/丢内容）
       saveSessionSafe();
     }
+  }
+
+  function send(): void {
+    void sendText(els.input.value);
   }
 
   function stop(): void {
@@ -258,6 +302,50 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     saveSessionSafe();
   }
 
+  function renameSession(title: string): void {
+    const t = title.trim();
+    if (!t || disposed) return;
+    session.title = t;
+    saveSessionSafe();
+    logger.info('gui', `会话标题已改为 "${t}"`);
+  }
+
+  function regenerate(): void {
+    if (disposed || streaming) {
+      // P4：流式/卸载期间点重发给提示，避免静默失败
+      els.status.textContent = streaming ? '生成中，暂不能重发' : '';
+      return;
+    }
+    // 找到最后一条用户消息作为重发锚点
+    let idx = -1;
+    for (let i = session.node.messages.length - 1; i >= 0; i--) {
+      if (session.node.messages[i].role === 'user') {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return;
+    const userMsg = session.node.messages[idx];
+    // P1-2：历史消息含非文本 part（如图片）时不重发（避免 [图片] 降级为纯文本导致类型信息永久丢失）
+    if (userMsg.parts.some((p) => p.type !== 'text')) {
+      els.status.textContent = '该消息含图片等非文本内容，暂不支持重发';
+      return;
+    }
+    const userText = userMsg.parts
+      .map((p) => (p.type === 'text' ? p.text : ''))
+      .join('\n');
+    if (!userText.trim()) return;
+    // P1-1：截断前先过发送校验（apiKey/服务商/加载态），失败则不删数据
+    if (!validateSend(userText)) return;
+    // 截断到最后一条用户消息（含）之前的全部内容，再由 sendText 重新追加同一条用户消息，
+    // 避免用户消息在会话里出现两次
+    session.node.messages = session.node.messages.slice(0, idx);
+    session.node.selectIndex = Math.max(0, session.node.messages.length - 1);
+    saveSessionSafe();
+    renderCurrent();
+    void sendText(userText, false);
+  }
+
   function dispose(): void {
     if (disposed) return;
     disposed = true;
@@ -265,8 +353,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       abortCtrl.abort();
       abortCtrl = null;
     }
+    streamToken++; // P6：卸载时递增令牌，旧流 finally 不再复位/渲染（onStreamEnd 不再触发）
     saveSessionSafe();
   }
 
-  return { send: () => void send(), stop, switchSession, getSessionId: () => session.id, dispose };
+  return { send: () => void send(), stop, switchSession, getSessionId: () => session.id, renameSession, regenerate, dispose };
 }

@@ -3,9 +3,20 @@
  * 内核抽象层的第一个验证插件：演示"新能力 = 一个插件文件 + 注册一行"。
  */
 import { Context } from '@deepseek-ai/cordis';
+import type { PluginManifest } from '../core/manifest';
 
 export const name = 'tool-time';
 export const inject = ['tools'];
+
+export const manifest: PluginManifest = {
+  name,
+  kind: 'tool',
+  label: { zh: '时间工具', en: 'Time Tool' },
+  group: '工具',
+  inject,
+  description: 'get_time_info：获取当前日期和时间',
+  apply,
+};
 
 export function apply(ctx: Context): void {
   ctx.tools.register(ctx, {

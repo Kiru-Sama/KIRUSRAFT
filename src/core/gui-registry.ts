@@ -7,7 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 
 export interface GuiThemeMeta {
-  /** 显示名（内核中心主题按钮、总览展示用） */
+  /** 显示名（管理中心主题按钮、总览展示用） */
   label: string;
   /**
    * 是否自带完整 GUI：
@@ -25,11 +25,6 @@ export const GUI_THEMES: Record<string, GuiThemeMeta> = {
 /** 主题是否自带完整 GUI */
 export function isGuiTheme(name: string): boolean {
   return GUI_THEMES[name]?.providesGui ?? false;
-}
-
-/** 主题显示名（未知主题回退原名） */
-export function themeLabel(name: string): string {
-  return GUI_THEMES[name]?.label ?? name;
 }
 
 /** 主题插件模块类型（静态导入的插件对象：name/kind/apply） */

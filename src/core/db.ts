@@ -129,18 +129,6 @@ export class Db {
     });
   }
 
-  /** 单条写入（插入或更新） */
-  async put<T>(store: string, value: T): Promise<void> {
-    const db = this.ensureOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(store, 'readwrite');
-      tx.objectStore(store).put(value);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
-    });
-  }
-
   /** 单条读取 */
   async get<T>(store: string, key: IDBValidKey): Promise<T | undefined> {
     const db = this.ensureOpen();
@@ -173,30 +161,6 @@ export class Db {
       const req = tx.objectStore(store).index(index).getAll(value);
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => reject(req.error);
-      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
-    });
-  }
-
-  /** 删除单条 */
-  async delete(store: string, key: IDBValidKey): Promise<void> {
-    const db = this.ensureOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(store, 'readwrite');
-      tx.objectStore(store).delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
-    });
-  }
-
-  /** 清空 store */
-  async clear(store: string): Promise<void> {
-    const db = this.ensureOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(store, 'readwrite');
-      tx.objectStore(store).clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }

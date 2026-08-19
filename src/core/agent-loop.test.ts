@@ -4,7 +4,7 @@ import type { ChatProvider } from '../providers/types';
 import type { ChatRequest, ChatStreamHandlers, UIMessagePart } from './types';
 
 function makeProvider(impl: (request: ChatRequest, handlers: ChatStreamHandlers, signal?: AbortSignal) => Promise<void>): ChatProvider {
-  return { id: 'test', displayName: '测试服务商', available: () => true, streamChat: impl };
+  return { id: 'test', displayName: '测试服务商', streamChat: impl };
 }
 
 function makeHandlers() {

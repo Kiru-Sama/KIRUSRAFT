@@ -10,6 +10,6 @@ export interface ChatProvider {
   displayName: string;
   /** 发起流式聊天 */
   streamChat(request: ChatRequest, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void>;
-  /** 可用性检查（本地，无网络） */
-  available(): boolean;
+  /** 可选：拉取可用模型列表（右上角模型下拉用；不实现则 UI 用内置预设模型） */
+  listModels?(baseURL: string, apiKey: string, signal?: AbortSignal): Promise<string[]>;
 }

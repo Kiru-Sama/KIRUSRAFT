@@ -8,7 +8,7 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     'session-switch'(id: string): void;
     'session-deleted'(id: string): void;
-    /** 唤起内核中心面板（各 GUI 的唯一"内核"入口按钮 → kernel-gui；tab 可选指定页） */
+    /** 唤起管理中心面板（各 GUI 的唯一"管理"入口按钮 → kernel-gui；tab 可选指定页） */
     'kernel-gui:open'(tab?: string): void;
   }
 }
@@ -52,15 +52,6 @@ export interface Tool {
   systemPrompt?: () => string;
   /** 执行工具，返回消息部件 */
   execute(args: Record<string, unknown>): Promise<UIMessagePart[]>;
-}
-
-/** 工具审批请求 */
-export interface ToolApprovalRequest {
-  toolCallId: string;
-  toolName: string;
-  args: Record<string, unknown>;
-  approved: boolean;
-  reason?: string;
 }
 
 /** 会话（简化：单节点起步，分叉后续扩展） */

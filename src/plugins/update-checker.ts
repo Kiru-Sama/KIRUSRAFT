@@ -4,11 +4,24 @@
  * 纯 Web 能力（fetch GitHub API），不依赖沙箱。
  * 网络失败（如本机代理 MITM 干扰）时降级为友好提示。
  */
-import { Context } from '@deepseek-ai/cordis';
+import { Context, Service } from '@deepseek-ai/cordis';
 import { VERSION as CURRENT_VERSION } from '../core/version';
+import type { PluginManifest } from '../core/manifest';
 
 export const name = 'update-checker';
 export const inject = ['tools'];
+
+export const manifest: PluginManifest = {
+  name,
+  kind: 'utility',
+  label: { zh: '更新检测', en: 'Update Checker' },
+  group: '工具',
+  inject,
+  provide: 'update',
+  protected: true,
+  description: '检测新版本（GitHub releases）+ 下载 APK',
+  apply,
+};
 
 const REPO_OWNER = 'Kiru-Sama';
 const REPO_NAME = 'KIRUSRAFT';
@@ -22,22 +35,23 @@ interface ReleaseInfo {
   publishedAt: string;
 }
 
-/** 最近一次 fetch 失败的原因（供调用方显示更具体的提示） */
-export let lastFetchError = '';
+/** 拉取结果：info 为成功时的版本信息，error 为失败原因（返回体携带，避免模块级可变状态并发覆盖，RikkaHub StateFlow 思路） */
+export interface FetchResult {
+  info: ReleaseInfo | null;
+  error: string;
+}
 
-/** 拉取最新 release 信息，失败返回 null（由调用方读 lastFetchError 提示） */
-export async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
-  lastFetchError = '';
+/** 拉取最新 release 信息，失败返回 info=null + error（由调用方直接读 error 提示） */
+export async function fetchLatestRelease(): Promise<FetchResult> {
   try {
     const res = await fetch(RELEASES_API, {
       headers: { accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
-      if (res.status === 404) lastFetchError = '仓库私有或无 release（私有仓库需配置 GitHub Token）';
-      else if (res.status === 403) lastFetchError = 'API 限流（403），请稍后重试';
-      else lastFetchError = `GitHub API 错误（HTTP ${res.status}）`;
-      return null;
+      if (res.status === 404) return { info: null, error: '仓库私有或无 release（私有仓库需配置 GitHub Token）' };
+      if (res.status === 403) return { info: null, error: 'API 限流（403），请稍后重试' };
+      return { info: null, error: `GitHub API 错误（HTTP ${res.status}）` };
     }
     const data = (await res.json()) as {
       tag_name?: string;
@@ -48,15 +62,17 @@ export async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
     };
     const apkAsset = (data.assets ?? []).find((a) => a.name?.endsWith('.apk'));
     return {
-      tagName: data.tag_name ?? '',
-      name: data.name ?? data.tag_name ?? '',
-      body: data.body ?? '',
-      apkUrl: apkAsset?.browser_download_url ?? null,
-      publishedAt: data.published_at ?? '',
+      info: {
+        tagName: data.tag_name ?? '',
+        name: data.name ?? data.tag_name ?? '',
+        body: data.body ?? '',
+        apkUrl: apkAsset?.browser_download_url ?? null,
+        publishedAt: data.published_at ?? '',
+      },
+      error: '',
     };
   } catch {
-    lastFetchError = '网络不可达';
-    return null;
+    return { info: null, error: '网络不可达' };
   }
 }
 
@@ -90,16 +106,41 @@ export async function downloadApk(url: string): Promise<{ blob: Blob; filename: 
   }
 }
 
+/** 更新检测服务：解耦 kernel-gui 对 update-checker 模块函数的直接 import（插件 A 不再静态 import 插件 B） */
+export class UpdateService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'update');
+  }
+
+  /** 拉取最新 release（返回 FetchResult：info + error） */
+  checkLatest(): Promise<FetchResult> {
+    return fetchLatestRelease();
+  }
+
+  /** 下载 APK 到 Blob */
+  download(url: string): Promise<{ blob: Blob; filename: string } | null> {
+    return downloadApk(url);
+  }
+
+  /** 版本对比（委托模块级 isNewer 纯函数） */
+  compareVersion(latest: string, current: string): boolean {
+    return isNewer(latest, current);
+  }
+}
+
 export function apply(ctx: Context): void {
-  // check_update 工具：模型可调用，也可由内核 GUI 触发
+  // 注册更新检测服务（kernel-gui 等通过 inject ['update'] 使用，不再直接 import 模块函数）
+  new UpdateService(ctx);
+
+  // check_update 工具：模型可调用
   ctx.tools.register(ctx, {
     name: 'check_update',
     description: '检查 KIRUSRAFT 是否有新版本（从 GitHub releases 拉取最新版本并对比当前版本）',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
-      const latest = await fetchLatestRelease();
+      const { info: latest, error } = await fetchLatestRelease();
       if (!latest) {
-        return [{ type: 'text', text: '检查更新失败：无法访问 GitHub（可能是网络受限），请稍后重试或检查代理设置。' }];
+        return [{ type: 'text', text: `检查更新失败：${error || '无法访问 GitHub（可能是网络受限）'}，请稍后重试或检查代理设置。` }];
       }
       if (!latest.tagName) {
         return [{ type: 'text', text: '未找到版本信息。' }];
@@ -112,4 +153,10 @@ export function apply(ctx: Context): void {
       return [{ type: 'text', text: `已是最新版本 ${CURRENT_VERSION}（远端 ${latest.tagName}）` }];
     },
   });
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    update: UpdateService;
+  }
 }
