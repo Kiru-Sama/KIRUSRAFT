@@ -14,16 +14,16 @@ interface PluginRuntime {
 }
 
 export function apply(ctx: Context): void {
-  // 创建右下角固定按钮
+  // 创建右下角固定按钮（上移到输入区之上，避免与发送按钮重叠）
   const btn = document.createElement('button');
   btn.textContent = '插件';
   btn.style.cssText =
-    'position:fixed;right:16px;bottom:16px;z-index:50;padding:10px 16px;background:#4f6ef7;color:#fff;border:none;border-radius:999px;font-size:13px;font-weight:500;cursor:pointer;box-shadow:0 2px 12px rgba(79,110,247,.4);';
+    'position:fixed;right:16px;bottom:88px;z-index:50;padding:8px 14px;background:#4f6ef7;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:500;cursor:pointer;box-shadow:0 2px 12px rgba(79,110,247,.4);';
 
   // 面板（初始隐藏）
   const panel = document.createElement('div');
   panel.style.cssText =
-    'position:fixed;right:16px;bottom:72px;z-index:50;width:320px;max-height:70vh;overflow-y:auto;background:#fff;border:1px solid #ececf1;border-radius:16px;box-shadow:0 8px 32px rgba(31,35,40,.15);padding:16px;display:none;font-family:system-ui,sans-serif;';
+    'position:fixed;right:16px;bottom:144px;z-index:50;width:320px;max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #ececf1;border-radius:16px;box-shadow:0 8px 32px rgba(31,35,40,.15);padding:16px;display:none;font-family:system-ui,sans-serif;';
 
   function renderOverview(): string {
     // 插件列表

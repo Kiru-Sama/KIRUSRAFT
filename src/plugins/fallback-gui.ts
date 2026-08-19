@@ -66,11 +66,12 @@ export function apply(ctx: Context, config: Config): void {
       /* ---- 整体布局：浅色背景 + 强调色（靛蓝），圆角/留白/柔和阴影 ---- */
       .fg-root{display:flex;flex-direction:column;height:100%;position:relative;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;background:#f7f8fa;color:#1f2328;}
       /* ---- 顶栏：白色卡片感，Logo 强调色 + 兜底徽章 ---- */
-      [data-fg="header"]{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:#ffffff;border-bottom:1px solid #ececf1;flex-shrink:0;}
-      [data-fg="header"] strong{font-size:15px;font-weight:600;letter-spacing:.3px;}
+      [data-fg="header"]{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;background:#ffffff;border-bottom:1px solid #ececf1;flex-shrink:0;}
+      [data-fg="header"] strong{font-size:15px;font-weight:600;letter-spacing:.3px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      [data-fg="header"] > div{display:flex;flex-shrink:0;}
       .fg-logo{color:#4f6ef7;}
-      .fg-badge{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;background:#eef1ff;color:#4f6ef7;font-size:11px;font-weight:500;letter-spacing:.5px;}
-      .fg-ghost-btn{background:transparent;border:1px solid #d9dce3;color:#3c4353;padding:6px 14px;border-radius:999px;font-size:13px;cursor:pointer;transition:all .18s ease;}
+      .fg-badge{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;background:#eef1ff;color:#4f6ef7;font-size:11px;font-weight:500;letter-spacing:.5px;white-space:nowrap;}
+      .fg-ghost-btn{background:transparent;border:1px solid #d9dce3;color:#3c4353;padding:6px 14px;border-radius:999px;font-size:13px;cursor:pointer;transition:all .18s ease;white-space:nowrap;}
       .fg-ghost-btn:hover{background:#f2f4f9;border-color:#c3c8d4;}
       .fg-ghost-btn + .fg-ghost-btn{margin-left:6px;}
       /* ---- 日志面板：保持深色，适合代码/日志查看 ---- */
@@ -106,12 +107,15 @@ export function apply(ctx: Context, config: Config): void {
       [data-fg="stop"]:hover{background:#fdf1f1;}
       /* ---- 移动端适配 ---- */
       @media (max-width:640px){
-        [data-fg="header"]{padding:10px 14px;}
+        [data-fg="header"]{padding:10px 14px;gap:8px;}
+        .fg-badge{display:none;}
+        .fg-ghost-btn{padding:5px 10px;font-size:12px;}
         [data-fg="messages"]{padding:14px 12px 8px;}
         .fg-bubble{max-width:85%;}
         .fg-composer{padding:10px 12px 12px;gap:8px;}
         [data-fg="input"]{padding:10px 12px;}
-        [data-fg="send"]{padding:10px 18px;}
+        [data-fg="send"]{padding:10px 14px;}
+        .fg-search{font-size:12px;}
       }
     </style>
     <div data-fg="header">
