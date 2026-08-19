@@ -354,7 +354,7 @@ export function apply(ctx: Context): void {
       <div class="kg-section">
         <h3>AI 服务商（共 ${providers.length} 个预设）</h3>
         <div class="kg-list-item">当前：${esc(active)}</div>
-        <div class="kg-text-dim">在"服务商设置"下拉中选择预设，自动填入 Base URL / 模型 / 密钥购买链接。</div>
+        <div class="kg-text-dim">在"服务商设置"中选卡片 → 填 API 密钥 → 模型自动检测（能自动的全自动）。</div>
         <div style="margin-top:10px;">
           <button type="button" class="kg-btn" data-ksetservice>服务商设置</button>
         </div>
@@ -421,7 +421,8 @@ export function apply(ctx: Context): void {
           entries
             .map((e) => {
               const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
-              return `[${t}] ${esc(e.level.toUpperCase())} [${esc(e.source)}] ${esc(e.message)}`;
+              const ver = e.version ? `[v${e.version}] ` : '';
+              return `[${t}] ${ver}${esc(e.level.toUpperCase())} [${esc(e.source)}] ${esc(e.message)}`;
             })
             .join('\n') || '（暂无日志）'
         }</div>

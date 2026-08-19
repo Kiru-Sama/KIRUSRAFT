@@ -22,6 +22,8 @@ export interface ProviderPreset {
   keyUrl: string;
   /** 协议类型 */
   kind: ProviderKind;
+  /** 可选的协议列表（支持双协议时：如 openai 官方可选 responses/chat） */
+  protocols?: ('responses' | 'chat')[];
   /** 一句话说明（可选） */
   note?: string;
 }
@@ -30,7 +32,7 @@ export interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   // ===== 官方 =====
   { id: 'deepseek', name: 'DeepSeek 深度求索', group: 'official', baseURL: 'https://api.deepseek.com', model: 'deepseek-chat', keyUrl: 'https://platform.deepseek.com/api_keys', kind: 'deepseek-responses', note: '国产性价比之王，官方 Responses API（支持思考）' },
-  { id: 'openai', name: 'OpenAI', group: 'official', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o-mini', keyUrl: 'https://platform.openai.com/api-keys', kind: 'openai', note: '国际通用，生态最全' },
+  { id: 'openai', name: 'OpenAI', group: 'official', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o-mini', keyUrl: 'https://platform.openai.com/api-keys', kind: 'openai', protocols: ['responses', 'chat'], note: '国际通用，生态最全；支持 Responses API（最新）与 Chat Completions' },
   { id: 'anthropic', name: 'Anthropic Claude', group: 'official', baseURL: 'https://api.anthropic.com/v1', model: 'claude-3-5-haiku-latest', keyUrl: 'https://console.anthropic.com/settings/keys', kind: 'anthropic', note: '长文写作/代码强项' },
   { id: 'gemini', name: 'Google Gemini', group: 'official', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', keyUrl: 'https://aistudio.google.com/app/apikey', kind: 'openai', note: '免费额度大，OpenAI 兼容端点' },
   { id: 'moonshot', name: 'Moonshot Kimi 月之暗面', group: 'official', baseURL: 'https://api.moonshot.cn/v1', model: 'kimi-k2', keyUrl: 'https://platform.kimi.com/console/api-keys', kind: 'openai', note: '长上下文中文强' },

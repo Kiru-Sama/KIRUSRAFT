@@ -4,13 +4,19 @@
  * 崩溃后进入兜底模式可查询历史日志。
  */
 
+import { VERSION } from './version';
+
+/** 日志级别 */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+/** 日志条目 */
 export interface LogEntry {
   time: number;
   level: LogLevel;
   source: string;
   message: string;
+  /** 产生本条日志时的应用版本（诊断溯源用，老日志无此字段） */
+  version?: string;
 }
 
 const STORAGE_KEY = 'kirusraft.logs.v1';
@@ -76,7 +82,7 @@ class Logger {
   }
 
   log(level: LogLevel, source: string, message: string): void {
-    const entry: LogEntry = { time: Date.now(), level, source, message };
+    const entry: LogEntry = { time: Date.now(), level, source, message, version: VERSION };
     this.memory.push(entry);
     if (this.memory.length > MAX_MEMORY) this.memory.shift();
     this.persist();

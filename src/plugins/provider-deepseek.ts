@@ -9,7 +9,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { DeepSeekProvider } from '../providers/deepseek';
 import { AnthropicProvider } from '../providers/anthropic';
-import { createOpenAICompatibleProvider } from '../providers/openai-compatible';
+import { createOpenAICompatibleProvider, createDualProtocolProvider } from '../providers/openai-compatible';
 import { PROVIDER_PRESETS } from '../providers/presets';
 import type { PluginManifest } from '../core/manifest';
 
@@ -27,13 +27,17 @@ export const manifest: PluginManifest = {
 };
 
 export function apply(ctx: Context): void {
-  // 按协议类型分发：deepseek-responses 用专用实现，anthropic 用 Claude 实现，其余 OpenAI 兼容
+  // 按协议类型分发：deepseek-responses 用专用实现，anthropic 用 Claude 实现，
+  // 支持双协议（openai 官方 protocols 含 responses）用双协议 provider，其余 OpenAI 兼容
   for (const preset of PROVIDER_PRESETS) {
     let provider;
     if (preset.kind === 'deepseek-responses') {
       provider = DeepSeekProvider;
     } else if (preset.kind === 'anthropic') {
       provider = AnthropicProvider;
+    } else if (preset.protocols && preset.protocols.length > 1) {
+      // 双协议：按 profile.protocol 在 Responses / chat 间切换（默认 responses）
+      provider = createDualProtocolProvider(preset.id, preset.name);
     } else {
       provider = createOpenAICompatibleProvider(preset.id, preset.name);
     }

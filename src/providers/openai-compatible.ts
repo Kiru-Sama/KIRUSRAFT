@@ -6,6 +6,7 @@
  */
 import type { ChatRequest, ChatStreamHandlers } from '../core/types';
 import type { ChatProvider } from './types';
+import { responsesStreamChat } from './responses';
 
 /** 解析 SSE 行 */
 function parseSseEvent(line: string): { data: unknown } | null {
@@ -223,5 +224,23 @@ export function createOpenAICompatibleProvider(id: string, displayName: string):
         return [];
       }
     },
+  };
+}
+
+/**
+ * 双协议 provider（OpenAI 官方用）：按 request.protocol 分发。
+ * - 'responses' → OpenAI Responses API（最新，POST /responses）
+ * - 'chat' / 缺省 → chat/completions（兼容生态）
+ */
+export function createDualProtocolProvider(id: string, displayName: string): ChatProvider {
+  const base = createOpenAICompatibleProvider(id, displayName);
+  return {
+    id,
+    displayName,
+    streamChat: (request, handlers, signal) => {
+      if (request.protocol === 'responses') return responsesStreamChat(request, handlers, signal);
+      return streamChat(request, handlers, signal);
+    },
+    listModels: base.listModels,
   };
 }

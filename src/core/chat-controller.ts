@@ -231,6 +231,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             model: currentProfile.model,
             apiKey: currentProfile.apiKey,
             baseURL: currentProfile.baseURL,
+            protocol: (currentProfile as { protocol?: 'responses' | 'chat' }).protocol ?? 'responses',
             messages: toChatMessages(session.node),
             maxTokens: 4096,
             tools: els.webSearch?.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,

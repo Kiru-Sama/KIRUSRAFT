@@ -259,6 +259,7 @@ const STYLE = `
 .ks-label { display:block; font-size:12px; color:var(--ex-text2); margin:12px 0 4px; }
 .ks-input { width:100%; padding:10px; border:2px solid var(--ex-border2); background:var(--ex-bg); color:var(--ex-text); font-family:var(--ex-font); font-size:13px; box-sizing:border-box; outline:none; transition:border-color .2s; }
 .ks-input:focus { border-color:var(--ex-accent); box-shadow:2px 2px 0 var(--ex-accent); }
+.ks-hint { display:block; font-size:11px; color:var(--ex-text3); margin:4px 0 10px; line-height:1.5; }
 /* ---- 移动端适配（APITOOL @media max-width:768px 对齐）+ 抽屉遮罩 ---- */
 @media (max-width:768px){
   .kr-exdark .ex-app { border-width:2px; box-shadow:3px 3px 0 var(--ex-accent2); }
@@ -299,6 +300,11 @@ const STYLE = `
 .ex-settings-nav .ex-nav-item.active { border-color:var(--ex-accent); background:var(--ex-accent); color:var(--ex-bg); box-shadow:2px 2px 0 var(--ex-accent2); }
 .ex-settings-body { flex:1; overflow-y:auto; overflow-x:hidden; padding:24px; max-height:85vh; min-height:0; }
 .ex-settings-body h2 { font-size:20px; color:var(--ex-accent); margin-bottom:16px; letter-spacing:2px; font-weight:900; }
+/* 设置标题行：标题 + 右上角常驻取消/保存 */
+.ex-settings-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:8px; flex-wrap:wrap; position:sticky; top:0; background:var(--ex-surface); z-index:5; padding-bottom:8px; }
+.ex-settings-head h2 { margin-bottom:0; }
+.ex-settings-head-actions { display:flex; gap:8px; flex-shrink:0; }
+.ex-settings-head-actions button { padding:6px 16px; border:3px solid var(--ex-border); font-weight:900; cursor:pointer; text-transform:uppercase; box-shadow:var(--ex-shadow); transition:all .2s; font-family:var(--ex-font); font-size:11px; }
 .ex-settings-body h3 { font-size:14px; color:var(--ex-text2); margin:22px 0 10px; border-bottom:2px solid var(--ex-border); padding-bottom:6px; font-weight:900; letter-spacing:1px; }
 .ex-section { scroll-margin-top:8px; max-width:100%; overflow-wrap:break-word; word-break:break-word; }
 .ex-settings-body label { font-size:12px; color:var(--ex-text2); display:block; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; font-weight:bold; }
@@ -388,7 +394,7 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-settings-body::-webkit-scrollbar-thumb, .ex-settings-nav::-webkit-scrollbar-thumb { background:var(--ex-border2); border-radius:3px; }
 .ex-settings-body::-webkit-scrollbar-thumb:hover, .ex-settings-nav::-webkit-scrollbar-thumb:hover { background:var(--ex-accent); }
 /* ---- 插件管理卡片（与 kernel-gui 功能开关页统一设计：状态徽标/权限行/就地展开） ---- */
-.ex-plugin-list { display:flex; flex-direction:column; gap:10px; }
+.ex-plugin-list { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 .ex-plugin-group-title { font-size:12px; font-weight:900; color:var(--ex-accent); border-left:4px solid var(--ex-accent); padding-left:8px; margin:14px 0 8px; letter-spacing:1px; }
 .ex-plugin-card { background:var(--ex-surface); border:2px solid var(--ex-border); box-shadow:2px 2px 0 var(--ex-border); }
 .ex-plugin-card:hover { border-color:var(--ex-border2); box-shadow:4px 4px 0 var(--ex-border); }
@@ -433,7 +439,8 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 `;
 
 export function apply(ctx: Context, config: Record<string, unknown> = {}): void {
-  // 防御：重挂时可能收到空配置（TopologyService 已给 {}，这里再兜一层）
+  // 防御：重挂时可能收到空配置（TopologyService 已给 {}，这里再兜一层；双保险兜 undefined/null）
+  config = config ?? {};
   const enabled = (config.enabled as boolean | undefined) ?? true;
   if (!enabled) return;
   const root = (config.root as HTMLElement | undefined) ?? document.getElementById('app');
@@ -548,86 +555,31 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     <div class="ex-modal" data-ex="settings-modal">
       <div class="ex-settings">
         <nav class="ex-settings-nav" data-ex="settings-nav">
-          <button type="button" class="ex-nav-item active" data-ex-nav="sec-plugins">插件管理</button>
-          <button type="button" class="ex-nav-item" data-ex-nav="sec-api">API 设置</button>
-          <button type="button" class="ex-nav-item" data-ex-nav="sec-prompt">系统提示词</button>
+          <button type="button" class="ex-nav-item active" data-ex-nav="sec-api">API 设置</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-conv">对话设置</button>
-          <button type="button" class="ex-nav-item" data-ex-nav="sec-perf">性能调节</button>
+          <button type="button" class="ex-nav-item" data-ex-nav="sec-prompt">系统提示词</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-theme">主题</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-pricing">计费显示</button>
+          <button type="button" class="ex-nav-item" data-ex-nav="sec-perf">性能调节</button>
+          <button type="button" class="ex-nav-item" data-ex-nav="sec-plugins">插件管理</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-storage">存档管理</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-logs">运行记录</button>
         </nav>
         <div class="ex-settings-body" data-ex="settings-body">
-          <h2>设置</h2>
-          <div class="ex-section" id="sec-plugins">
-            <h3>插件管理（APITOOL 状态管理 → KIRUSRAFT 插件化）</h3>
-            <div class="ex-plugin-note" style="font-size:11px;color:var(--ex-text3);margin-bottom:10px;">插件管理 / Plugin Manager：按功能区启停插件，受保护插件不可禁用。</div>
-            <div class="ex-plugin-list" data-ex="plugin-list">
-              <div style="font-size:12px;color:var(--ex-text3);padding:16px;text-align:center;">插件列表加载中...</div>
+          <div class="ex-settings-head">
+            <h2>设置</h2>
+            <div class="ex-settings-head-actions">
+              <button type="button" class="ex-cancel-btn" data-ex="settingsCancel">取消</button>
+              <button type="button" class="ex-save-btn" data-ex="settingsSave">保存</button>
             </div>
           </div>
           <div class="ex-section" id="sec-api">
-            <h3>API 服务商（密钥与接口地址绑定保存）</h3>
+            <h3>API 服务商（选卡 → 填密钥，能自动的全自动）</h3>
             <div class="ex-provider-main">
-              <div class="ex-provider-main-head"><span class="ex-provider-main-label">我的服务商</span></div>
-              <div class="ex-provider-tabs" data-ex="provider-tabs">
-                <div class="ex-provider-tab active" data-ex-tab="0">DeepSeek 官方</div>
-                <div class="ex-provider-tab" data-ex-tab="1">中转站</div>
-                <div class="ex-provider-add" data-ex="addprovider">＋ 添加服务商</div>
-              </div>
+              <div class="ex-provider-main-head"><span class="ex-provider-main-label">服务商配置</span></div>
+              <!-- 极简服务商配置：由 profile-config 分节渲染（选预设卡/填 Key/自动检测模型/高级折叠） -->
+              <div data-ex="profile-render"></div>
             </div>
-            <details class="ex-preset-details">
-              <summary>预设官方服务商（一键填入）</summary>
-              <div class="ex-preset-grid">
-                <div class="ex-preset-item"><span class="preset-name">DeepSeek</span><span class="preset-model">deepseek-chat</span></div>
-                <div class="ex-preset-item"><span class="preset-name">OpenAI</span><span class="preset-model">gpt-4o</span></div>
-                <div class="ex-preset-item"><span class="preset-name">Kimi</span><span class="preset-model">moonshot-v1</span></div>
-                <div class="ex-preset-item"><span class="preset-name">智谱 GLM</span><span class="preset-model">glm-4</span></div>
-              </div>
-            </details>
-            <div class="ex-provider-form">
-              <label for="exProviderName">服务商名称</label>
-              <input type="text" id="exProviderName" placeholder="如：DeepSeek 官方 / 中转站">
-              <label for="exProviderType">类型</label>
-              <select id="exProviderType">
-                <option>DeepSeek</option>
-                <option>OpenAI 兼容</option>
-                <option>Kimi (Moonshot)</option>
-                <option>智谱 GLM</option>
-                <option>自定义</option>
-              </select>
-              <label for="exApiBaseUrl">API 地址</label>
-              <input type="text" id="exApiBaseUrl" placeholder="https://api.deepseek.com/v1">
-              <details class="ex-model-mgmt" id="exProfileAdvanced"><summary>高级选项（接口 / 单价，可选）</summary>
-                <label for="exModelsUrl">模型列表接口</label>
-                <input type="text" id="exModelsUrl" placeholder="留空自动探测 /models">
-                <label for="exBalanceUrl">余额接口</label>
-                <input type="text" id="exBalanceUrl" placeholder="留空自动">
-                <label for="exPriceInput">输入单价</label>
-                <input type="text" id="exPriceInput" placeholder="留空 = 官方价">
-                <label for="exPriceOutput">输出单价</label>
-                <input type="text" id="exPriceOutput" placeholder="留空 = 官方价">
-              </details>
-              <label for="exApiKey">API 密钥</label>
-              <div class="ex-form-row">
-                <input type="password" id="exApiKey" placeholder="sk-..." data-ex="apiKey">
-                <button type="button" class="ex-top-btn" data-ex="keyToggle">显示</button>
-              </div>
-              <label for="exModelInput">模型</label>
-              <div class="ex-form-row">
-                <input type="text" id="exModelInput" placeholder="deepseek-chat" data-ex="modelInput">
-                <button type="button" class="ex-top-btn" data-ex="detectModels">自动检测</button>
-              </div>
-              <details class="ex-model-mgmt" id="exModelMgmt">
-                <summary><span>模型列表</span><span class="ex-model-mgmt-count" data-ex="modelCount"></span></summary>
-                <div class="ex-model-mgmt-list" data-ex="modelList"></div>
-              </details>
-              <div class="ex-form-buttons">
-                <button type="button" class="ex-top-btn" data-ex="saveProvider">保存服务商</button>
-              </div>
-            </div>
-            <div class="ex-usage-note">购买 API / 查看用量<br><a href="https://platform.deepseek.com/usage" target="_blank" rel="noopener noreferrer">platform.deepseek.com/usage</a></div>
           </div>
           <div class="ex-section" id="sec-prompt">
             <h3>系统提示词</h3>
@@ -661,6 +613,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <span class="ex-slider-value"><span data-ex="parallaxValue">4</span> 层</span>
             </div>
           </div>
+          <div class="ex-section" id="sec-plugins">
+            <h3>插件管理</h3>
+            <div class="ex-plugin-note" style="font-size:11px;color:var(--ex-text3);margin-bottom:10px;">按功能区启停插件，受保护插件不可禁用。</div>
+            <div class="ex-plugin-list" data-ex="plugin-list">
+              <div style="font-size:12px;color:var(--ex-text3);padding:16px;text-align:center;">插件列表加载中...</div>
+            </div>
+          </div>
           <div class="ex-section" id="sec-theme">
             <h3>主题</h3>
             <div class="ex-theme-options">
@@ -690,10 +649,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-danger-title">⚠ 危险操作</div>
               <button type="button" class="ex-danger-btn" data-ex="resetApp">重置所有数据（清空全部对话、设置与历史存档）</button>
               <div class="ex-hint">等同恢复出厂设置：清空浏览器中本应用的全部数据，清空后回到首次打开状态。</div>
-            </div>
-            <div class="ex-modal-buttons">
-              <button type="button" class="ex-cancel-btn" data-ex="settingsCancel">取消</button>
-              <button type="button" class="ex-save-btn" data-ex="settingsSave">保存</button>
             </div>
             <div class="ex-footer-ver">KIRUSRAFT × EXDARK · 布局复刻 APITOOL V8.3.4m</div>
           </div>
@@ -752,15 +707,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const settingsNav = container.querySelector('[data-ex="settings-nav"]') as HTMLElement;
   const settingsBody = container.querySelector('[data-ex="settings-body"]') as HTMLElement;
   const toastContainer = container.querySelector('[data-ex="toast"]') as HTMLElement;
-  const keyInput = container.querySelector('[data-ex="apiKey"]') as HTMLInputElement;
-  const keyToggle = container.querySelector('[data-ex="keyToggle"]') as HTMLButtonElement;
-  const modelInput = container.querySelector('[data-ex="modelInput"]') as HTMLInputElement;
-  const detectModelsBtn = container.querySelector('[data-ex="detectModels"]') as HTMLButtonElement;
-  const modelCountEl = container.querySelector('[data-ex="modelCount"]') as HTMLElement;
-  const modelListEl = container.querySelector('[data-ex="modelList"]') as HTMLElement;
-  const providerTabs = container.querySelector('[data-ex="provider-tabs"]') as HTMLElement;
-  const addProviderBtn = container.querySelector('[data-ex="addprovider"]') as HTMLElement;
-  const saveProviderBtn = container.querySelector('[data-ex="saveProvider"]') as HTMLButtonElement;
+  const profileRender = container.querySelector('[data-ex="profile-render"]') as HTMLElement;
   const syncRateBtn = container.querySelector('[data-ex="syncRate"]') as HTMLButtonElement;
   const exportDataBtn = container.querySelector('[data-ex="exportData"]') as HTMLButtonElement;
   const importDataBtn = container.querySelector('[data-ex="importData"]') as HTMLButtonElement;
@@ -789,27 +736,24 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .map((e) => {
         const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
         const lv = e.level.toUpperCase().padEnd(5);
-        return `[${t}] ${lv} [${e.source}] ${e.message}`;
+        const ver = e.version ? `[v${e.version}] ` : '';
+        return `[${t}] ${ver}${lv} [${e.source}] ${e.message}`;
       })
       .join('\n');
     logView.scrollTop = logView.scrollHeight;
   }
 
   function openSettings(tab?: string): void {
-    const profile = ctx.config.get('profile') as { model?: string; baseURL?: string; apiKey?: string } | undefined;
-    const baseInput = container.querySelector('#exApiBaseUrl') as HTMLInputElement | null;
-    if (profile) {
-      if (baseInput) baseInput.value = profile.baseURL ?? '';
-      if (modelInput) modelInput.value = profile.model ?? '';
-      if (keyInput) keyInput.value = profile.apiKey ?? '';
+    // 渲染服务商极简配置（profile-config 分节：选卡/填 Key/自动检测模型/高级折叠）
+    if (profileRender) {
+      const section = ctx.config.list().find((s) => s.namespace === 'profile');
+      if (section?.render) {
+        profileRender.innerHTML = '';
+        section.render(profileRender, () => ctx.config.get('profile'), (v) => ctx.config.set('profile', v));
+      } else {
+        profileRender.innerHTML = '<div class="ks-hint">服务商配置分节未就绪</div>';
+      }
     }
-    // 模型列表占位渲染（功能占位：后续接入自动探测 /models）
-    const current = profile?.model || 'deepseek-chat';
-    const modelItems = [current, 'deepseek-reasoner', 'deepseek-coder', 'gpt-4o', 'glm-4', 'moonshot-v1'];
-    modelListEl.innerHTML = modelItems
-      .map((m) => `<div class="ex-model-mgmt-item">${m}</div>`)
-      .join('');
-    modelCountEl.textContent = `${modelItems.length} 个（占位）`;
     renderPluginList();
     settingsModal.classList.add('show');
     // 指定分区：激活导航项 + 滚动到分区（供"运行记录"等入口直达）
@@ -924,8 +868,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       <div class="ex-plugin-card-inner">
         <div class="ex-plugin-card-main">
           <div class="ex-plugin-card-name">${esc(zh)}<span class="ex-en">${esc(en)}</span></div>
-          ${desc ? `<div class="ex-plugin-card-desc">${esc(desc)}</div>` : ''}
-          <div class="ex-plugin-card-perms">需要：${esc(perms)}</div>
+          ${desc ? `<div class="ex-plugin-card-desc" title="${esc(desc)}">${esc(desc)}</div>` : ''}
         </div>
         <div class="ex-plugin-card-actions">
           ${badge}
@@ -1690,30 +1633,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       const sec = settingsBody.querySelector('#' + btn.dataset.exNav) as HTMLElement | null;
       if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-    // 密钥显示切换（纯 UI，不涉及保存）
-    keyToggle.addEventListener('click', () => {
-      const hidden = keyInput.type === 'password';
-      keyInput.type = hidden ? 'text' : 'password';
-      keyToggle.textContent = hidden ? '隐藏' : '显示';
-    });
-    // 服务商 tab 切换（占位高亮）
-    providerTabs.addEventListener('click', (e) => {
-      const tab = (e.target as HTMLElement).closest('[data-ex-tab]') as HTMLElement | null;
-      if (tab) {
-        providerTabs.querySelectorAll('.ex-provider-tab').forEach((n) => n.classList.remove('active'));
-        tab.classList.add('active');
-      }
-    });
-    // 添加服务商（占位）
-    addProviderBtn.addEventListener('click', () => showToast('功能开发中：添加服务商'));
-    // 自动检测模型（占位：渲染占位列表）
-    detectModelsBtn.addEventListener('click', () => {
-      modelListEl.innerHTML = '<div class="ex-model-mgmt-item" style="grid-column:1/-1;text-align:center;color:var(--ex-text3);">（功能开发中：自动检测模型）</div>';
-      modelCountEl.textContent = '0 个';
-      showToast('功能开发中：自动检测模型');
-    });
-    // 保存服务商（占位）
-    saveProviderBtn.addEventListener('click', () => showToast('功能开发中：保存服务商'));
     // 帧率按钮（占位高亮）
     settingsBody.addEventListener('click', (e) => {
       const fps = (e.target as HTMLElement).closest('[data-ex-fps]') as HTMLElement | null;

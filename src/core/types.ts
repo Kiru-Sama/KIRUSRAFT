@@ -67,6 +67,8 @@ export interface ChatRequest {
   model: string;
   apiKey: string;
   baseURL: string;
+  /** 协议选择：responses（OpenAI Responses API）或 chat（chat/completions，默认） */
+  protocol?: 'responses' | 'chat';
   messages?: { role: string; content: string }[];
   /** Responses API 完整 input（工具循环回传 function_call/function_call_output 用） */
   input?: Record<string, unknown>[];

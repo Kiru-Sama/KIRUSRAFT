@@ -49,6 +49,8 @@ function esc(s: string): string {
 }
 
 export function apply(ctx: Context, config: Record<string, unknown> = {}): void {
+  // 双保险：默认参数兜 undefined，这里再兜 null/脏值（旧版曾因 config undefined 读 .root 崩）
+  config = config ?? {};
   const root = (config.root as HTMLElement | undefined) ?? document.getElementById('app');
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
@@ -164,14 +166,15 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .join('');
   }
 
-  /** 渲染日志（读持久化日志） */
+  /** 渲染日志（读持久化日志；每条带产生它的版本号，白屏排障可溯源） */
   function renderLogs(): void {
     const entries = logger.getLogs();
     logBodyEl.textContent = entries
       .map((e) => {
         const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
         const lv = e.level.toUpperCase().padEnd(5);
-        return `[${t}] ${lv} [${e.source}] ${e.message}`;
+        const ver = e.version ? `[v${e.version}] ` : '';
+        return `[${t}] ${ver}${lv} [${e.source}] ${e.message}`;
       })
       .join('\n') || '（暂无日志）';
     logBodyEl.scrollTop = logBodyEl.scrollHeight;
