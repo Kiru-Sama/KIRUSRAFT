@@ -47,7 +47,7 @@ const STYLE = `
 /* ---- 侧边栏：玻璃拟态 + 右侧粗边框，绝对定位抽屉 ---- */
 .ex-sidebar { width:260px; background:var(--ex-sidebar-glass); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); color:var(--ex-text); display:flex; flex-direction:column; border-right:4px solid var(--ex-border); position:absolute; top:0; left:0; bottom:0; z-index:50; transform:translateX(0); transition:transform var(--ex-sidebar-transition); will-change:transform; }
 .ex-sidebar.hidden { transform:translateX(-100%); }
-.ex-sidebar-header { padding:16px 16px 12px; border-bottom:4px solid var(--ex-border); background:var(--ex-surface); }
+.ex-sidebar-header { padding:calc(16px + env(safe-area-inset-top,0px)) 16px 12px; border-bottom:4px solid var(--ex-border); background:var(--ex-surface); }
 .ex-sidebar-header h2 { font-size:18px; text-transform:uppercase; letter-spacing:3px; color:var(--ex-accent); font-weight:900; }
 .ex-sidebar-sub { font-size:11px; color:var(--ex-text2); margin-top:2px; font-weight:bold; letter-spacing:1px; }
 .ex-sidebar-actions { padding:10px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:4px solid var(--ex-border); background:var(--ex-surface); }
@@ -85,8 +85,8 @@ const STYLE = `
 .ex-toggle { position:absolute; top:70px; left:264px; z-index:60; background:var(--ex-surface); border:2px solid var(--ex-border); padding:4px 12px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:var(--ex-shadow); font-family:var(--ex-font); transition:left var(--ex-sidebar-transition),background .2s; display:block; line-height:1.4; }
 .ex-toggle.hidden-state { left:16px; }
 .ex-toggle:hover { background:var(--ex-bg2); }
-/* ---- 顶栏：粗底边框 + 青绿标题 ---- */
-.ex-topbar { padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:4px solid var(--ex-border); z-index:5; background:var(--ex-surface); flex-wrap:nowrap; gap:8px; }
+/* ---- 顶栏：粗底边框 + 青绿标题；顶部安全区（状态栏/刘海）适配 ---- */
+.ex-topbar { padding:calc(12px + env(safe-area-inset-top,0px)) 20px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:4px solid var(--ex-border); z-index:5; background:var(--ex-surface); flex-wrap:nowrap; gap:8px; }
 .ex-topbar-left { display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 auto; }
 .ex-topbar-left h1 { font-size:20px; letter-spacing:4px; color:var(--ex-accent); font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 .ex-topbar-right { display:flex; gap:8px; align-items:center; flex-shrink:0; }
@@ -144,9 +144,10 @@ const STYLE = `
 `;
 
 export function apply(ctx: Context, config: Config): void {
-  const enabled = config.enabled ?? true;
+  // 防御：重挂时可能收到空配置（TopologyService 已给 {}，这里再兜一层）
+  const enabled = config?.enabled ?? true;
   if (!enabled) return;
-  const root = config.root ?? document.getElementById('app');
+  const root = config?.root ?? document.getElementById('app');
   if (!root) throw new Error('ui-exdark: 找不到挂载节点');
 
   // 服务商配置分节（共享实现，样式类 .ks-* 由本主题样式表提供暗色外观）

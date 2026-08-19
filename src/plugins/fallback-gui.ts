@@ -19,7 +19,8 @@ export interface Config {
 }
 
 export function apply(ctx: Context, config: Config): void {
-  const root = config.root ?? document.getElementById('app');
+  // 防御：重挂时可能收到空配置（TopologyService 已给 {}，这里再兜一层）
+  const root = config?.root ?? document.getElementById('app');
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
   // 服务商配置分节（共享实现，样式类 .ks-* 由本插件样式表提供）
@@ -31,8 +32,8 @@ export function apply(ctx: Context, config: Config): void {
     <style>
       /* ---- 整体布局：浅色背景 + 强调色（靛蓝），圆角/留白/柔和阴影 ---- */
       .fg-root{display:flex;flex-direction:column;height:100%;position:relative;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;background:#f7f8fa;color:#1f2328;}
-      /* ---- 顶栏：白色卡片感，Logo 强调色 + 兜底徽章 ---- */
-      [data-fg="header"]{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;background:#ffffff;border-bottom:1px solid #ececf1;flex-shrink:0;}
+      /* ---- 顶栏：白色卡片感，Logo 强调色 + 兜底徽章；顶部安全区（状态栏/刘海）适配 ---- */
+      [data-fg="header"]{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 20px 12px;background:#ffffff;border-bottom:1px solid #ececf1;flex-shrink:0;}
       [data-fg="header"] strong{font-size:15px;font-weight:600;letter-spacing:.3px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       [data-fg="header"] > div{display:flex;flex-shrink:0;}
       .fg-logo{color:#4f6ef7;}
@@ -44,7 +45,7 @@ export function apply(ctx: Context, config: Config): void {
       .fg-reddot{position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:50%;background:#e5484d;border:2px solid #fff;display:none;}
       /* ---- 日志面板：保持深色，适合代码/日志查看 ---- */
       [data-fg="logpanel"]{display:none;position:absolute;inset:0;background:#1e1e1e;color:#d4d4d4;font-family:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace;font-size:12px;flex-direction:column;z-index:10;}
-      [data-fg="logpanel"] > div:first-child{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#2a2d35;border-bottom:1px solid #3a3d45;}
+      [data-fg="logpanel"] > div:first-child{display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;background:#2a2d35;border-bottom:1px solid #3a3d45;}
       [data-fg="logpanel"] strong{font-size:13px;font-weight:600;color:#e8e8ea;}
       .fg-log-btn{background:#3a3d45;color:#e8e8ea;border:none;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;transition:background .15s ease;}
       .fg-log-btn:hover{background:#4a4e58;}

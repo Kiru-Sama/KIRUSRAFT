@@ -10,7 +10,6 @@ import * as ToolTime from './plugins/tool-time';
 import * as FallbackGui from './plugins/fallback-gui';
 import * as KernelGui from './plugins/kernel-gui';
 import * as UpdateChecker from './plugins/update-checker';
-import * as Deconstruction from './plugins/deconstruction';
 import * as Exdark from './plugins/theme-exdark';
 import { GUI_THEMES } from './core/gui-registry';
 import { logger } from './core/logger';
@@ -25,7 +24,6 @@ export interface BootstrapOptions {
 
 /** 主题插件模块注册表：runtime 名 → 静态导入的插件模块（与 gui-registry 的元数据一一对应） */
 const THEME_MODULES: Record<string, ThemePluginModule> = {
-  'ui-deconstruction': Deconstruction as unknown as ThemePluginModule,
   'ui-exdark': Exdark as unknown as ThemePluginModule,
 };
 
@@ -56,8 +54,10 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   // ui 配置分节：当前主题（默认进主题 GUI，v0.0.19 起默认 ui-exdark）
   ctx.config.register(ctx, { namespace: 'ui', displayName: '界面', defaults: { theme: 'ui-exdark' } });
 
-  // 主题恢复：读 config.ui.theme 挂载对应主题（上次选的主题下次还在；默认直接进主题插件 GUI）
-  const theme = String(ctx.config.get('ui').theme ?? 'ui-exdark');
+  // 主题恢复：读 config.ui.theme 挂载对应主题（默认直接进主题插件 GUI）。
+  // 存过已下架/未知主题（如旧版 ui-deconstruction）时回退默认主题，避免直接掉进兜底 GUI
+  const storedTheme = String(ctx.config.get('ui').theme ?? '');
+  const theme = THEME_MODULES[storedTheme] ? storedTheme : 'ui-exdark';
   let guiReady = false;
   const themeMod = THEME_MODULES[theme];
   if (themeMod) {

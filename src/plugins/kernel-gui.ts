@@ -101,12 +101,9 @@ export function apply(ctx: Context): void {
                 const active = id === activeThemeId;
                 return `<button data-ktheme="${esc(id)}" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${active ? '#4f6ef7' : '#d9dce3'};background:${active ? '#eef1ff' : '#fff'};color:${active ? '#4f6ef7' : '#3c4353'};">${esc(label)}</button>`;
               };
-              return (
-                btn('', '默认') +
-                Object.entries(GUI_THEMES)
-                  .map(([id, meta]) => btn(id, meta.label))
-                  .join('')
-              );
+              return Object.entries(GUI_THEMES)
+                .map(([id, meta]) => btn(id, meta.label))
+                .join('');
             })()}
           </div>
         </div>
@@ -370,7 +367,7 @@ export function apply(ctx: Context): void {
 
   function renderPanel(): void {
     panel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:#fff;border-bottom:1px solid #ececf1;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:calc(12px + env(safe-area-inset-top,0px)) 20px 12px;background:#fff;border-bottom:1px solid #ececf1;">
         <strong style="font-size:16px;color:#1f2328;">内核中心</strong>
         <button data-kclose style="background:none;border:none;font-size:22px;cursor:pointer;color:#8a90a0;line-height:1;">×</button>
       </div>
@@ -416,9 +413,10 @@ export function apply(ctx: Context): void {
       });
     });
 
-    // 空间站 tab：插件启停开关
+    // 空间站 tab：插件启停开关（stopPropagation：点开关不触发卡片详情抽屉）
     panel.querySelectorAll<HTMLButtonElement>('[data-ktoggle]').forEach((el) => {
-      el.addEventListener('click', async () => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const name = el.dataset.ktoggle;
         if (!name || ctx.topology.isProtected(name)) return;
         el.disabled = true;

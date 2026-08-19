@@ -169,17 +169,26 @@ export class TopologyService extends Service {
     this.lastConfigs.set(name, config);
   }
 
+  /**
+   * 插件重挂配置：优先上次挂载配置；缺失给空对象 {}。
+   * 本会话从未挂载过的插件（如默认主题下从未出现的 fallback-gui、未点过的主题）
+   * 没有 runtime 也没有 lastConfig，传 undefined 会让 apply 读 config.xxx 崩溃
+   * （各插件 apply 均用 `?? 默认值` 容错，空对象安全）。
+   */
+  private effectiveConfig(name: string): unknown {
+    const stored = this.lastConfigs.get(name);
+    if (stored !== undefined) return stored;
+    const runtime = this.findRuntime(name);
+    const config = runtime ? [...(runtime.fibers ?? [])][0]?.config : undefined;
+    return config ?? {};
+  }
+
   /** 系统级确保插件在（未激活则用上次配置重载，GUI 仲裁用） */
   private async ensurePlugin(name: string): Promise<void> {
     const runtime = this.findRuntime(name);
     if (runtime && [...(runtime.fibers ?? [])].some((f) => f.state === 2)) return;
-    const lastConfig = this.lastConfigs.has(name)
-      ? this.lastConfigs.get(name)
-      : runtime
-        ? [...(runtime.fibers ?? [])][0]?.config
-        : undefined;
     try {
-      await this.mountPlugin(name, lastConfig);
+      await this.mountPlugin(name, this.effectiveConfig(name));
     } catch (error) {
       logger.error('topology', `${name} 重载失败: ${String(error)}`);
     }
@@ -211,12 +220,9 @@ export class TopologyService extends Service {
         await this.ensurePlugin('fallback-gui');
       }
     } else {
-      // 启用：重新挂载
-      const lastConfig = this.lastConfigs.has(name)
-        ? this.lastConfigs.get(name)
-        : fibers[0]?.config;
+      // 启用：重新挂载（registry 的 runtime 可能已被 Cordis 删除，用登记的模块重挂）
       try {
-        await this.mountPlugin(name, lastConfig);
+        await this.mountPlugin(name, this.effectiveConfig(name));
       } catch (error) {
         return { ok: false, message: `启用失败: ${String(error)}` };
       }
