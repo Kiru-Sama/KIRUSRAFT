@@ -57,6 +57,8 @@ export function apply(ctx: Context): void {
     'position:fixed;inset:0;z-index:60;background:#f7f8fa;display:none;flex-direction:column;font-family:system-ui,sans-serif;';
 
   let activeTab: Tab = '总览';
+  /** 空间站图选中的插件（详情抽屉用） */
+  let selectedPlugin: string | null = null;
 
   function esc(s: string): string {
     return s
@@ -193,7 +195,7 @@ export function apply(ctx: Context): void {
           ? 'margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;background:#eef0f5;color:#8a90a0;'
           : `margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;background:${m.node.stateCode === 2 ? '#fdecec;color:#e5484d' : '#e8f4ef;color:#1a9e6b'};`;
         return `
-      <div style="position:absolute;left:${m.x - 52}px;top:${m.y - 22}px;width:104px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;${isTheme ? 'opacity:.85;border-style:dashed;' : ''}">
+      <div data-kdetail="${esc(m.node.id)}" style="position:absolute;left:${m.x - 52}px;top:${m.y - 22}px;width:104px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;cursor:pointer;${isTheme ? 'opacity:.85;border-style:dashed;' : ''}">
         <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.node.name)}">${esc(m.node.name)}</div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${sc};"></span>
@@ -213,7 +215,37 @@ export function apply(ctx: Context): void {
           ${modulesHtml}
         </div>
       </div>
+      ${renderPluginDetail()}
       <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站只读视图 · 核心舱 + 4 服务端口 + ${modules.length} 个插件舱段</div>`;
+  }
+
+  /** 详情抽屉：点击舱段卡片后展示插件详情 */
+  function renderPluginDetail(): string {
+    if (!selectedPlugin) return '';
+    const topo = ctx.topology.getTopology();
+    const node = topo.nodes.find((n) => n.id === selectedPlugin);
+    if (!node) return '';
+    const kindLabel = node.kind === 'core' ? '核心舱' : node.kind === 'theme' ? '主题插件' : '功能插件';
+    const deps =
+      node.injectServices.length > 0
+        ? node.injectServices
+            .map(
+              (s) =>
+                `<span style="display:inline-block;padding:2px 8px;margin:2px;border-radius:6px;background:#eef1ff;color:#4f6ef7;font-size:11px;">${esc(s)}</span>`,
+            )
+            .join('')
+        : '<span style="color:#9aa1b0;">（无）</span>';
+    return `
+      <div style="background:#fff;border:1px solid #ececf1;border-radius:14px;padding:16px;margin:12px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <strong style="font-size:15px;color:#1f2328;">${esc(node.name)}</strong>
+          <button data-kdetailclose style="background:none;border:none;font-size:18px;color:#8a90a0;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <div style="font-size:13px;color:#5a6172;margin-bottom:6px;">状态：<strong>${esc(node.state)}</strong></div>
+        <div style="font-size:13px;color:#5a6172;margin-bottom:6px;">类型：${kindLabel}</div>
+        <div style="font-size:13px;color:#5a6172;">依赖服务：</div>
+        <div style="margin-top:2px;">${deps}</div>
+      </div>`;
   }
 
   function renderServices(): string {
@@ -352,6 +384,18 @@ export function apply(ctx: Context): void {
         }
         renderPanel();
       });
+    });
+
+    // 空间站 tab：点击舱段卡片打开详情抽屉
+    panel.querySelectorAll<HTMLElement>('[data-kdetail]').forEach((el) => {
+      el.addEventListener('click', () => {
+        selectedPlugin = el.dataset.kdetail ?? null;
+        renderPanel();
+      });
+    });
+    panel.querySelector('[data-kdetailclose]')?.addEventListener('click', () => {
+      selectedPlugin = null;
+      renderPanel();
     });
 
     // 配置 tab：为每个分节调用 render 回调（用 dataset 匹配，避免选择器转义问题）
