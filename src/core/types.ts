@@ -8,6 +8,8 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     'session-switch'(id: string): void;
     'session-deleted'(id: string): void;
+    /** 唤起内核中心面板（fallback-gui 顶栏按钮 → kernel-gui） */
+    'kernel-gui:open'(): void;
   }
 }
 

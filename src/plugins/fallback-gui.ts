@@ -121,6 +121,7 @@ export function apply(ctx: Context, config: Config): void {
     <div data-fg="header">
       <strong><span class="fg-logo">KIRUSRAFT</span><span class="fg-badge">兜底模式</span></strong>
       <div>
+        <button data-fg="kernelBtn" class="fg-ghost-btn">内核</button>
         <button data-fg="logsBtn" class="fg-ghost-btn">日志</button>
         <button data-fg="settingsBtn" class="fg-ghost-btn">设置</button>
       </div>
@@ -164,6 +165,7 @@ export function apply(ctx: Context, config: Config): void {
   const stopEl = container.querySelector('[data-fg="stop"]') as HTMLButtonElement;
   const statusEl = container.querySelector('[data-fg="status"]') as HTMLElement;
   const settingsBtn = container.querySelector('[data-fg="settingsBtn"]') as HTMLButtonElement;
+  const kernelBtn = container.querySelector('[data-fg="kernelBtn"]') as HTMLButtonElement;
   const webSearchEl = container.querySelector('[data-fg="websearch"]') as HTMLInputElement;
   const logsBtn = container.querySelector('[data-fg="logsBtn"]') as HTMLButtonElement;
   const logPanel = container.querySelector('[data-fg="logpanel"]') as HTMLElement;
@@ -421,6 +423,10 @@ export function apply(ctx: Context, config: Config): void {
       saveSessionSafe();
     });
     settingsBtn.addEventListener('click', openSettings);
+    // 顶栏"内核"按钮：唤起 kernel-gui 管理面板（跨插件事件解耦）
+    kernelBtn.addEventListener('click', () => {
+      ctx.emit('kernel-gui:open');
+    });
     settingsClose.addEventListener('click', () => {
       settingsPanel.style.display = 'none';
     });

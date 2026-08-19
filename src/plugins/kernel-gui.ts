@@ -45,6 +45,11 @@ export function apply(ctx: Context): void {
   fab.textContent = '内核';
   fab.style.cssText =
     'position:fixed;right:16px;bottom:88px;z-index:50;padding:8px 14px;background:#1f2328;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:500;cursor:pointer;box-shadow:0 2px 12px rgba(31,35,40,.3);';
+  // 异常红点：有 FAILED 插件时显示（P2）
+  const redDot = document.createElement('span');
+  redDot.style.cssText =
+    'position:absolute;top:-3px;right:-3px;width:12px;height:12px;border-radius:50%;background:#e5484d;border:2px solid #fff;display:none;';
+  fab.appendChild(redDot);
 
   // 全屏面板
   const panel = document.createElement('div');
@@ -457,14 +462,30 @@ export function apply(ctx: Context): void {
     }
   }
 
+  function openPanel(): void {
+    panel.style.display = 'flex';
+    activeTab = '总览';
+    renderPanel();
+  }
+
   ctx.effect(() => {
     document.body.appendChild(fab);
     document.body.appendChild(panel);
-    fab.addEventListener('click', () => {
-      panel.style.display = 'flex';
-      activeTab = '总览';
-      renderPanel();
-    });
+    fab.addEventListener('click', openPanel);
+    // 跨插件唤起：fallback-gui 顶栏"内核"按钮 emit 'kernel-gui:open'
+    ctx.on('kernel-gui:open', openPanel);
+    // 异常红点：有 FAILED 插件时 FAB 显示红点
+    const updateDot = () => {
+      try {
+        const topo = ctx.topology.getTopology();
+        redDot.style.display = topo.nodes.some((n) => n.stateCode === 3) ? 'block' : 'none';
+      } catch {
+        redDot.style.display = 'none';
+      }
+    };
+    ctx.on('internal/status', updateDot);
+    ctx.on('internal/plugin', updateDot);
+    updateDot();
     return () => {
       fab.remove();
       panel.remove();
