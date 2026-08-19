@@ -105,20 +105,19 @@ export function apply(ctx: Context): void {
   function renderTopology(): string {
     const topo = ctx.topology.getTopology();
     const modules = topo.nodes.filter((n) => n.kind !== 'core');
-    if (modules.length === 0) return `<div style="padding:20px;color:#8a90a0;">（无插件）</div>`;
 
-    // 固定径向布局参数
+    // 固定径向布局参数（moduleR 保证卡片不越界：cx±moduleR±52 落在 [0,340] 内）
     const W = 340;
     const H = 440;
     const cx = W / 2;
     const cy = H / 2;
     const coreR = 44;
     const portR = 76;
-    const moduleR = 158;
+    const moduleR = 110;
 
     // 端口位置（核心舱圆周，等角度）
     const portPos = topo.ports.map((p, i) => {
-      const angle = (-90 + (i * 360) / topo.ports.length) * (Math.PI / 180);
+      const angle = (-90 + (i * 360) / Math.max(topo.ports.length, 1)) * (Math.PI / 180);
       return { name: p.name, color: p.color, x: cx + portR * Math.cos(angle), y: cy + portR * Math.sin(angle) };
     });
 
@@ -169,20 +168,26 @@ export function apply(ctx: Context): void {
       .map((m) => {
         const sc = stateColor(m.node.stateCode);
         const isTheme = m.node.kind === 'theme';
+        const protectedP = ctx.topology.isProtected(m.node.id);
+        const toggleLabel = protectedP ? '受保护' : m.node.stateCode === 2 ? '禁用' : '启用';
+        const toggleStyle = protectedP
+          ? 'margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;background:#eef0f5;color:#8a90a0;'
+          : `margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;background:${m.node.stateCode === 2 ? '#fdecec;color:#e5484d' : '#e8f4ef;color:#1a9e6b'};`;
         return `
       <div style="position:absolute;left:${m.x - 52}px;top:${m.y - 22}px;width:104px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;${isTheme ? 'opacity:.85;border-style:dashed;' : ''}">
-        <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.node.name)}</div>
+        <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.node.name)}">${esc(m.node.name)}</div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${sc};"></span>
           <span style="font-size:10px;color:${sc};">${esc(m.node.state)}</span>
         </div>
+        <button data-ktoggle="${esc(m.node.id)}" style="${toggleStyle}" ${protectedP ? 'disabled' : ''}>${toggleLabel}</button>
       </div>`;
       })
       .join('');
 
     return `
-      <div style="padding:10px;display:flex;justify-content:center;">
-        <div style="position:relative;width:${W}px;height:${H}px;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
+      <div style="padding:10px;overflow-x:auto;">
+        <div style="position:relative;width:${W}px;height:${H}px;margin:0 auto;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
           <svg width="${W}" height="${H}" style="position:absolute;inset:0;">${edgesSvg}</svg>
           ${coreHtml}
           ${portsHtml}
@@ -301,6 +306,21 @@ export function apply(ctx: Context): void {
     // 总览 tab：检查更新按钮
     panel.querySelector('[data-kcheckupdate]')?.addEventListener('click', () => {
       void checkUpdate();
+    });
+
+    // 空间站 tab：插件启停开关
+    panel.querySelectorAll<HTMLButtonElement>('[data-ktoggle]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const name = el.dataset.ktoggle;
+        if (!name || ctx.topology.isProtected(name)) return;
+        el.disabled = true;
+        const r = await ctx.topology.togglePlugin(name);
+        if (!r.ok) {
+          logger.error('topology', r.message ?? `切换 ${name} 失败`);
+          el.disabled = false;
+        }
+        renderPanel();
+      });
     });
 
     // 配置 tab：为每个分节调用 render 回调（用 dataset 匹配，避免选择器转义问题）
