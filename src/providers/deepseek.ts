@@ -94,6 +94,8 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
+  // 工具参数缓存：function_call_arguments.done 先给参数，output_item.done 兜底合并（B4）
+  const argCache = new Map<string, string>();
 
   // 空闲超时：60s 无数据则中止，防止服务端半开挂死
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -120,7 +122,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
         if (!trimmed) continue;
         const ev = parseSseEvent(trimmed);
         if (!ev || ev.data === null) continue;
-        dispatch(ev.data, handlers);
+        dispatch(ev.data, handlers, argCache);
       }
     }
     handlers.onDone();
@@ -138,7 +140,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
 }
 
 /** 事件分发 */
-function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
+function dispatch(data: unknown, handlers: ChatStreamHandlers, argCache: Map<string, string>): void {
   if (typeof data !== 'object' || data === null) return;
   const record = data as Record<string, unknown>;
   const type = record.type as string;
@@ -151,16 +153,24 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
       if (typeof record.delta === 'string') handlers.onReasoningDelta(record.delta);
       break;
     case 'response.function_call_arguments.done':
-      // name/call_id 在 output_item.done 事件里，这里不处理
+      // 缓存参数，作为 output_item.done 的兜底（部分实现只在 done 给全量参数）
+      if (typeof record.call_id === 'string' && typeof record.arguments === 'string') {
+        argCache.set(record.call_id, record.arguments);
+      }
       break;
     case 'response.output_item.done': {
       const item = record.item as Record<string, unknown> | undefined;
       // call_id 为空时跳过（无法回传 function_call_output）
       if (item && item.type === 'function_call' && typeof item.name === 'string' && item.call_id) {
         let args: Record<string, unknown> = {};
+        // 优先用 output_item.done 的 arguments；为空则用 function_call_arguments.done 缓存兜底
+        const argumentsStr =
+          typeof item.arguments === 'string' && item.arguments.length > 0
+            ? item.arguments
+            : argCache.get(String(item.call_id)) ?? '';
         try {
-          if (typeof item.arguments === 'string' && item.arguments.length > 0) {
-            args = JSON.parse(item.arguments);
+          if (argumentsStr.length > 0) {
+            args = JSON.parse(argumentsStr);
           }
         } catch {
           /* 参数解析失败用空对象 */
@@ -169,7 +179,7 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers): void {
           id: String(item.call_id),
           name: item.name,
           args,
-          rawArguments: typeof item.arguments === 'string' ? item.arguments : undefined,
+          rawArguments: argumentsStr.length > 0 ? argumentsStr : undefined,
         });
       }
       break;

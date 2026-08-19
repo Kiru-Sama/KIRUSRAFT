@@ -8,7 +8,7 @@ export const name = 'tool-time';
 export const inject = ['tools'];
 
 export function apply(ctx: Context): void {
-  ctx.tools.register({
+  ctx.tools.register(ctx, {
     name: 'get_time_info',
     description: '获取当前的日期和时间，用于回答"现在几点""今天几号"之类的问题',
     parameters: { type: 'object', properties: {} },

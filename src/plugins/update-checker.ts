@@ -92,7 +92,7 @@ export async function downloadApk(url: string): Promise<{ blob: Blob; filename: 
 
 export function apply(ctx: Context): void {
   // check_update 工具：模型可调用，也可由内核 GUI 触发
-  ctx.tools.register({
+  ctx.tools.register(ctx, {
     name: 'check_update',
     description: '检查 KIRUSRAFT 是否有新版本（从 GitHub releases 拉取最新版本并对比当前版本）',
     parameters: { type: 'object', properties: {} },

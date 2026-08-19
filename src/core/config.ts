@@ -30,15 +30,18 @@ export class ConfigService extends Service {
     super(ctx, 'config');
   }
 
-  /** 注册配置分节，返回 disposer */
-  register(section: ConfigSection): () => void {
+  /**
+   * 注册配置分节，返回 disposer。
+   * 必须传调用方插件自己的 ctx（effect 绑定调用方 fiber，插件卸载时自动反注册）
+   */
+  register(ctx: Context, section: ConfigSection): () => void {
     if (this.sections.has(section.namespace)) {
       throw new Error(`配置分节 "${section.namespace}" 已注册`);
     }
     this.sections.set(section.namespace, section);
     // 加载持久化值，合并默认
     this.values.set(section.namespace, { ...section.defaults, ...this.load(section.namespace) });
-    const dispose = this.ctx.effect(() => () => {
+    const dispose = ctx.effect(() => () => {
       this.sections.delete(section.namespace);
       this.values.delete(section.namespace);
     });

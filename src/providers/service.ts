@@ -12,12 +12,16 @@ export class ProviderService extends Service {
     super(ctx, 'providers');
   }
 
-  register(provider: ChatProvider): () => void {
+  /**
+   * 注册 provider，返回 disposer。
+   * 必须传调用方插件自己的 ctx（effect 绑定调用方 fiber，插件卸载时自动反注册）
+   */
+  register(ctx: Context, provider: ChatProvider): () => void {
     if (this.providers.has(provider.id)) {
       throw new Error(`provider "${provider.id}" 已注册`);
     }
     this.providers.set(provider.id, provider);
-    const dispose = this.ctx.effect(() => () => {
+    const dispose = ctx.effect(() => () => {
       this.providers.delete(provider.id);
     });
     return () => void dispose();

@@ -9,5 +9,5 @@ export const name = 'provider-deepseek';
 export const inject = ['providers'];
 
 export function apply(ctx: Context): void {
-  ctx.providers.register(DeepSeekProvider);
+  ctx.providers.register(ctx, DeepSeekProvider);
 }

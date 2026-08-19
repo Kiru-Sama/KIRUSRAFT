@@ -13,13 +13,17 @@ export class ToolsService extends Service {
     super(ctx, 'tools');
   }
 
-  /** 注册工具，返回 disposer（卸载时自动反注册） */
-  register(tool: Tool): () => void {
+  /**
+   * 注册工具，返回 disposer。
+   * 必须传调用方插件自己的 ctx：effect 绑定到调用方 fiber，插件卸载时自动反注册。
+   * （不能用 this.ctx——那会绑到 core-services 的 fiber，插件卸载时工具永久残留）
+   */
+  register(ctx: Context, tool: Tool): () => void {
     if (this.tools.has(tool.name)) {
       throw new Error(`工具 "${tool.name}" 已注册`);
     }
     this.tools.set(tool.name, tool);
-    const dispose = this.ctx.effect(() => () => {
+    const dispose = ctx.effect(() => () => {
       this.tools.delete(tool.name);
     });
     return () => void dispose();

@@ -25,7 +25,7 @@ export function apply(ctx: Context, config: Config): void {
   let loaded = false;
 
   // 注册 profile 配置分节（走配置中心，带设置表单渲染）
-  ctx.config.register({
+  ctx.config.register(ctx, {
     namespace: 'profile',
     displayName: '服务商',
     defaults: {

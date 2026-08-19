@@ -39,16 +39,18 @@ class Logger {
     if (this.memory.length === 0) return;
     // 只落盘增量：写成功后才清空内存，失败则日志留在内存不丢失
     const fresh = this.memory;
-    const merged = [...fresh];
+    let merged: LogEntry[] = [];
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         try {
           const old = JSON.parse(raw) as LogEntry[];
-          merged.unshift(...old);
+          merged = [...old, ...fresh];
         } catch {
           /* 忽略损坏日志 */
         }
+      } else {
+        merged = [...fresh];
       }
     } catch {
       /* 读取失败不阻断写入 */

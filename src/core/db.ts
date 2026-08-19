@@ -65,8 +65,15 @@ export class Db {
         this.db = req.result;
         resolve();
       };
-      req.onerror = () => reject(req.error ?? new Error('IndexedDB 打开失败'));
-      req.onblocked = () => reject(new Error('IndexedDB 打开被阻塞（版本回退或有旧连接未关闭）'));
+      req.onerror = () => {
+        // 失败重置 opening，允许后续重试
+        this.opening = null;
+        reject(req.error ?? new Error('IndexedDB 打开失败'));
+      };
+      req.onblocked = () => {
+        this.opening = null;
+        reject(new Error('IndexedDB 打开被阻塞（版本回退或有旧连接未关闭）'));
+      };
     });
     return this.opening;
   }

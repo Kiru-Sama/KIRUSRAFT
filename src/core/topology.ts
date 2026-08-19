@@ -45,7 +45,8 @@ interface FiberLike {
 
 interface RuntimeLike {
   name?: string;
-  fibers?: FiberLike[];
+  /** 真实类型是 DisposableList<Fiber>（只有迭代器+length），标成 Iterable 防误当下标数组 */
+  fibers?: Iterable<FiberLike>;
   callback?: unknown;
 }
 
