@@ -5,14 +5,13 @@
  * 网络失败（如本机代理 MITM 干扰）时降级为友好提示。
  */
 import { Context } from '@deepseek-ai/cordis';
+import { VERSION as CURRENT_VERSION } from '../core/version';
 
 export const name = 'update-checker';
 export const inject = ['tools'];
 
 const REPO_OWNER = 'Kiru-Sama';
 const REPO_NAME = 'KIRUSRAFT';
-// 注意：升版本号时需同步更新此处（与 capacitor.config.ts / build.gradle 的 versionName 保持一致）
-export const CURRENT_VERSION = '0.0.10';
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
 interface ReleaseInfo {
@@ -35,7 +34,7 @@ export async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
-      if (res.status === 404) lastFetchError = '仓库不存在或无 release（404）';
+      if (res.status === 404) lastFetchError = '仓库私有或无 release（私有仓库需配置 GitHub Token）';
       else if (res.status === 403) lastFetchError = 'API 限流（403），请稍后重试';
       else lastFetchError = `GitHub API 错误（HTTP ${res.status}）`;
       return null;

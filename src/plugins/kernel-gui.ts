@@ -7,7 +7,8 @@
 import { Context } from '@deepseek-ai/cordis';
 import { logger } from '../core/logger';
 import { createSession } from '../core/session';
-import { fetchLatestRelease, downloadApk, isNewer, CURRENT_VERSION, lastFetchError } from './update-checker';
+import { fetchLatestRelease, downloadApk, isNewer, lastFetchError } from './update-checker';
+import { VERSION as CURRENT_VERSION } from '../core/version';
 import type { Session } from '../core/types';
 
 export const name = 'kernel-gui';
