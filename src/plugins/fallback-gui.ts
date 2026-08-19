@@ -1,16 +1,17 @@
 /**
- * 兜底 GUI（v0.0.1）
+ * 兜底 GUI（v0.0.19）
  * 内核自带的极简聊天界面，不依赖任何 UI 插件。
- * UI 插件全部加载失败时，这个界面保证"内核在就有界面"。
+ * 主题 GUI 全部加载失败 / 用户选择"默认"时，这个界面保证"内核在就有界面"。
+ * 聊天状态机已抽取到 chat-controller，本插件只负责布局、样式与入口。
  */
 import { Context } from '@deepseek-ai/cordis';
-import { runAgentLoop } from '../core/agent-loop';
-import { appendMessage, createSession, toChatMessages } from '../core/session';
+import { createChatController } from '../core/chat-controller';
+import { registerProfileConfig } from '../core/profile-config';
 import { logger } from '../core/logger';
-import type { Session, UIMessagePart, ProviderProfile } from '../core/types';
+import type { UIMessagePart } from '../core/types';
 
 export const name = 'fallback-gui';
-export const inject = ['providers', 'tools', 'config', 'storage'];
+export const inject = ['providers', 'tools', 'config', 'storage', 'topology'];
 
 export interface Config {
   /** 挂载根节点，缺省取 #app */
@@ -21,43 +22,8 @@ export function apply(ctx: Context, config: Config): void {
   const root = config.root ?? document.getElementById('app');
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
 
-  let session: Session = createSession();
-  let loaded = false;
-
-  // 注册 profile 配置分节（走配置中心，带设置表单渲染）
-  ctx.config.register(ctx, {
-    namespace: 'profile',
-    displayName: '服务商',
-    defaults: {
-      id: 'deepseek',
-      baseURL: 'https://api.deepseek.com/v1',
-      model: 'deepseek-chat',
-      apiKey: '',
-    },
-    render: (container, get, set) => {
-      const fields: { key: string; label: string; placeholder: string; password?: boolean }[] = [
-        { key: 'baseURL', label: 'Base URL（含 /v1）', placeholder: 'https://api.deepseek.com/v1' },
-        { key: 'model', label: '模型', placeholder: 'deepseek-chat' },
-        { key: 'apiKey', label: 'API Key', placeholder: 'sk-...', password: true },
-      ];
-      for (const f of fields) {
-        const label = document.createElement('label');
-        label.textContent = f.label;
-        label.style.cssText = 'display:block;font-size:12px;color:#5a6172;margin:12px 0 4px;';
-        const input = document.createElement('input');
-        input.type = f.password ? 'password' : 'text';
-        input.value = String(get()[f.key] ?? '');
-        input.placeholder = f.placeholder;
-        input.style.cssText =
-          'width:100%;padding:8px 12px;border:1px solid #dfe2ea;border-radius:8px;font-size:13px;box-sizing:border-box;background:#f7f8fa;';
-        input.addEventListener('input', () => {
-          set({ ...get(), [f.key]: input.value });
-        });
-        container.appendChild(label);
-        container.appendChild(input);
-      }
-    },
-  });
+  // 服务商配置分节（共享实现，样式类 .ks-* 由本插件样式表提供）
+  registerProfileConfig(ctx);
 
   const container = document.createElement('div');
   container.className = 'fg-root';
@@ -71,9 +37,11 @@ export function apply(ctx: Context, config: Config): void {
       [data-fg="header"] > div{display:flex;flex-shrink:0;}
       .fg-logo{color:#4f6ef7;}
       .fg-badge{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;background:#eef1ff;color:#4f6ef7;font-size:11px;font-weight:500;letter-spacing:.5px;white-space:nowrap;}
-      .fg-ghost-btn{background:transparent;border:1px solid #d9dce3;color:#3c4353;padding:6px 14px;border-radius:999px;font-size:13px;cursor:pointer;transition:all .18s ease;white-space:nowrap;}
+      .fg-ghost-btn{position:relative;background:transparent;border:1px solid #d9dce3;color:#3c4353;padding:6px 14px;border-radius:999px;font-size:13px;cursor:pointer;transition:all .18s ease;white-space:nowrap;}
       .fg-ghost-btn:hover{background:#f2f4f9;border-color:#c3c8d4;}
       .fg-ghost-btn + .fg-ghost-btn{margin-left:6px;}
+      /* 异常红点：有 FAILED 插件时内核按钮显示（原 FAB 红点迁移到唯一入口上） */
+      .fg-reddot{position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:50%;background:#e5484d;border:2px solid #fff;display:none;}
       /* ---- 日志面板：保持深色，适合代码/日志查看 ---- */
       [data-fg="logpanel"]{display:none;position:absolute;inset:0;background:#1e1e1e;color:#d4d4d4;font-family:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace;font-size:12px;flex-direction:column;z-index:10;}
       [data-fg="logpanel"] > div:first-child{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#2a2d35;border-bottom:1px solid #3a3d45;}
@@ -105,6 +73,10 @@ export function apply(ctx: Context, config: Config): void {
       [data-fg="send"]:active{transform:scale(.97);}
       [data-fg="stop"]{padding:11px 18px;background:#fff;color:#e5484d;border:1px solid #f3c1c4;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;transition:background .15s ease;}
       [data-fg="stop"]:hover{background:#fdf1f1;}
+      /* ---- 共享设置表单（.ks-*，profile 配置分节用） ---- */
+      .ks-label{display:block;font-size:12px;color:#5a6172;margin:12px 0 4px;}
+      .ks-input{width:100%;padding:8px 12px;border:1px solid #dfe2ea;border-radius:8px;font-size:13px;box-sizing:border-box;background:#f7f8fa;color:#1f2328;outline:none;transition:border-color .15s ease,background .15s ease;}
+      .ks-input:focus{border-color:#4f6ef7;background:#fff;}
       /* ---- 移动端适配 ---- */
       @media (max-width:640px){
         [data-fg="header"]{padding:10px 14px;gap:8px;}
@@ -121,7 +93,7 @@ export function apply(ctx: Context, config: Config): void {
     <div data-fg="header">
       <strong><span class="fg-logo">KIRUSRAFT</span><span class="fg-badge">兜底模式</span></strong>
       <div>
-        <button data-fg="kernelBtn" class="fg-ghost-btn">内核</button>
+        <button data-fg="kernelBtn" class="fg-ghost-btn">内核<span class="fg-reddot"></span></button>
         <button data-fg="logsBtn" class="fg-ghost-btn">日志</button>
         <button data-fg="settingsBtn" class="fg-ghost-btn">设置</button>
       </div>
@@ -166,6 +138,7 @@ export function apply(ctx: Context, config: Config): void {
   const statusEl = container.querySelector('[data-fg="status"]') as HTMLElement;
   const settingsBtn = container.querySelector('[data-fg="settingsBtn"]') as HTMLButtonElement;
   const kernelBtn = container.querySelector('[data-fg="kernelBtn"]') as HTMLButtonElement;
+  const redDot = kernelBtn.querySelector('.fg-reddot') as HTMLElement;
   const webSearchEl = container.querySelector('[data-fg="websearch"]') as HTMLInputElement;
   const logsBtn = container.querySelector('[data-fg="logsBtn"]') as HTMLButtonElement;
   const logPanel = container.querySelector('[data-fg="logpanel"]') as HTMLElement;
@@ -176,8 +149,6 @@ export function apply(ctx: Context, config: Config): void {
   const settingsPanel = container.querySelector('[data-fg="settingspanel"]') as HTMLElement;
   const settingsBody = container.querySelector('[data-fg="settingsBody"]') as HTMLElement;
   const settingsClose = container.querySelector('[data-fg="settingsClose"]') as HTMLButtonElement;
-
-  let abortCtrl: AbortController | null = null;
 
   function renderLogs(): void {
     const entries = logger.getLogs();
@@ -194,189 +165,6 @@ export function apply(ctx: Context, config: Config): void {
   function openLogs(): void {
     logPanel.style.display = 'flex';
     renderLogs();
-  }
-
-  logger.info('gui', '兜底 GUI 已挂载');
-
-  function renderMessage(role: string, parts: UIMessagePart[]): HTMLElement {
-    const bubble = document.createElement('div');
-    bubble.className = role === 'user' ? 'fg-bubble fg-user' : 'fg-bubble fg-ai';
-    bubble.textContent = parts.map((p) => (p.type === 'text' ? p.text : `[图片]`)).join('\n');
-    return bubble;
-  }
-
-  // 切换会话（kernel-gui 会话 tab 触发的事件）
-  async function switchSession(id: string): Promise<void> {
-    // 中止进行中的流并立即落盘旧会话，避免切换后 AI 回复串写到新会话
-    if (abortCtrl) {
-      abortCtrl.abort();
-      abortCtrl = null;
-      saveSessionSafe();
-    }
-    try {
-      const loaded = await ctx.storage.getConversation(id);
-      if (!loaded || !loaded.node || !Array.isArray(loaded.node.messages)) {
-        logger.error('storage', `切换会话失败（数据损坏）: ${id}`);
-        return;
-      }
-      session = loaded;
-      msgEl.innerHTML = '';
-      for (const m of session.node.messages) {
-        msgEl.appendChild(renderMessage(m.role, m.parts));
-      }
-      msgEl.scrollTop = msgEl.scrollHeight;
-      logger.info('gui', `已切换到会话 ${id}（${session.node.messages.length} 条消息）`);
-    } catch (error) {
-      logger.error('storage', `切换会话失败: ${String(error)}`);
-    }
-  }
-
-  ctx.on('session-switch', (id: unknown) => {
-    void switchSession(String(id));
-  });
-  ctx.on('session-deleted', (id: unknown) => {
-    if (session.id === String(id)) {
-      // 中止进行中的流，避免删除后旧回复串写
-      if (abortCtrl) {
-        abortCtrl.abort();
-        abortCtrl = null;
-      }
-      session = createSession();
-      msgEl.innerHTML = '';
-      void ctx.storage.saveConversation(session);
-      logger.info('gui', '当前会话已删除，已新建会话');
-    }
-  });
-
-  // 启动加载最近会话（IndexedDB 持久化，关 App 不丢）
-  void (async () => {
-    try {
-      const list = await ctx.storage.listConversations();
-      const loadedSession = list[0];
-      if (loadedSession && loadedSession.node && Array.isArray(loadedSession.node.messages)) {
-        session = loadedSession;
-        for (const m of session.node.messages) {
-          msgEl.appendChild(renderMessage(m.role, m.parts));
-        }
-        msgEl.scrollTop = msgEl.scrollHeight;
-        logger.info('gui', `已加载最近会话（${session.node.messages.length} 条消息）`);
-      } else if (loadedSession) {
-        logger.warn('storage', '会话数据损坏，已重建');
-        session = createSession();
-        await ctx.storage.saveConversation(session);
-      } else {
-        await ctx.storage.saveConversation(session);
-        logger.info('gui', '新建会话已落盘');
-      }
-    } catch (error) {
-      logger.error('storage', `加载会话失败: ${String(error)}`);
-    } finally {
-      loaded = true;
-    }
-  })();
-
-  function saveSessionSafe(): void {
-    void ctx.storage.saveConversation(session).catch((error) => {
-      logger.error('storage', `保存会话失败: ${String(error)}`);
-    });
-  }
-
-  let streaming = false;
-
-  async function send(text: string): Promise<void> {
-    if (!text.trim() || streaming) return;
-    if (!loaded) {
-      statusEl.textContent = '正在加载会话...';
-      return;
-    }
-    // 每次发送都读最新配置（config.set 会替换对象，闭包引用会失效）
-    const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
-    if (!currentProfile.apiKey) {
-      statusEl.textContent = '请先在设置中填写 API Key';
-      logger.warn('gui', '发送被拒绝：未配置 API Key');
-      openSettings();
-      return;
-    }
-    const provider = ctx.providers.get(currentProfile.id);
-    if (!provider) {
-      statusEl.textContent = `错误: 服务商 "${currentProfile.id}" 未注册`;
-      logger.error('gui', `服务商 "${currentProfile.id}" 未注册`);
-      openSettings();
-      return;
-    }
-
-    streaming = true;
-    try {
-      logger.info('gui', `发送消息(${webSearchEl.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
-      appendMessage(session, 'user', [{ type: 'text', text }]);
-      msgEl.appendChild(renderMessage('user', [{ type: 'text', text }]));
-      saveSessionSafe();
-      inputEl.value = '';
-      msgEl.scrollTop = msgEl.scrollHeight;
-
-      const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
-      // 不提前 appendMessage('ai')：避免请求体末尾出现空 content 的 assistant 占位消息（L-1）
-      // 且空气泡不会落盘（N-8）。首个文本增量到达时才写入 session。
-      let aiAppended = false;
-      const aiBubble = renderMessage('ai', aiParts);
-      msgEl.appendChild(aiBubble);
-      msgEl.scrollTop = msgEl.scrollHeight;
-
-      abortCtrl = new AbortController();
-      sendEl.style.display = 'none';
-      stopEl.style.display = '';
-      statusEl.textContent = '思考中...';
-
-      await runAgentLoop(
-        {
-          provider,
-          request: {
-            model: currentProfile.model,
-            apiKey: currentProfile.apiKey,
-            baseURL: currentProfile.baseURL,
-            messages: toChatMessages(session.node),
-            maxTokens: 4096,
-            tools: webSearchEl.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
-          },
-          tools: ctx.tools,
-          signal: abortCtrl.signal,
-        },
-        {
-          onTextDelta: (delta) => {
-            if (!aiAppended) {
-              appendMessage(session, 'ai', aiParts);
-              aiAppended = true;
-            }
-            const part = aiParts[0];
-            if (part.type === 'text') part.text += delta;
-            aiBubble.textContent = (part.type === 'text' ? part.text : '');
-            msgEl.scrollTop = msgEl.scrollHeight;
-            statusEl.textContent = '生成中...';
-          },
-          onReasoningDelta: () => {
-            statusEl.textContent = '推理中...';
-          },
-          onToolCall: (call) => {
-            statusEl.textContent = `调用工具: ${call.name}...`;
-            logger.info('tool', `调用工具 ${call.name}`);
-          },
-          onDone: () => {
-            statusEl.textContent = '';
-          },
-          onError: (error) => {
-            statusEl.textContent = `错误: ${error.message}`;
-            logger.error('api', error.message);
-          },
-        },
-      );
-    } finally {
-      // 无论成功/失败/中止，统一恢复 UI 与落盘（避免 UI 卡死）
-      streaming = false;
-      sendEl.style.display = '';
-      stopEl.style.display = 'none';
-      abortCtrl = null;
-      saveSessionSafe();
-    }
   }
 
   function openSettings(): void {
@@ -406,27 +194,50 @@ export function apply(ctx: Context, config: Config): void {
     logger.info('gui', '打开设置面板');
   }
 
+  // 聊天状态机（共享控制器：会话/流式/落盘/事件）
+  const controller = createChatController(ctx, {
+    messages: msgEl,
+    input: inputEl,
+    send: sendEl,
+    stop: stopEl,
+    status: statusEl,
+    webSearch: webSearchEl,
+    renderMessage: (role: 'user' | 'ai', parts: UIMessagePart[]): HTMLElement => {
+      const bubble = document.createElement('div');
+      bubble.className = role === 'user' ? 'fg-bubble fg-user' : 'fg-bubble fg-ai';
+      bubble.textContent = parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join('\n');
+      return bubble;
+    },
+    onRequireSettings: openSettings,
+  });
+
+  logger.info('gui', '兜底 GUI 已挂载');
+
   // 生命周期：副作用回收（Cordis effect 模式，卸载时自动逆序清理）
   ctx.effect(() => {
-    sendEl.addEventListener('click', () => void send(inputEl.value));
+    sendEl.addEventListener('click', controller.send);
     inputEl.addEventListener('keydown', (e) => {
       // 中文输入法组合态（isComposing）回车不应发送
-      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) void send(inputEl.value);
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) controller.send();
     });
-    stopEl.addEventListener('click', () => {
-      abortCtrl?.abort();
-      abortCtrl = null;
-      statusEl.textContent = '已中止';
-      sendEl.style.display = '';
-      stopEl.style.display = 'none';
-      // 中止也要保存已生成的部分内容
-      saveSessionSafe();
-    });
+    stopEl.addEventListener('click', controller.stop);
     settingsBtn.addEventListener('click', openSettings);
-    // 顶栏"内核"按钮：唤起 kernel-gui 管理面板（跨插件事件解耦）
+    // 顶栏"内核"按钮：唤起 kernel-gui 管理面板（v0.0.19 起兜底 GUI 的唯一内核入口）
     kernelBtn.addEventListener('click', () => {
       ctx.emit('kernel-gui:open');
     });
+    // 异常红点：有 FAILED 插件时内核按钮显示红点
+    const updateDot = () => {
+      try {
+        const topo = ctx.topology.getTopology();
+        redDot.style.display = topo.nodes.some((n) => n.stateCode === 3) ? 'block' : 'none';
+      } catch {
+        redDot.style.display = 'none';
+      }
+    };
+    ctx.on('internal/status', updateDot);
+    ctx.on('internal/plugin', updateDot);
+    updateDot();
     settingsClose.addEventListener('click', () => {
       settingsPanel.style.display = 'none';
     });
@@ -440,7 +251,7 @@ export function apply(ctx: Context, config: Config): void {
       renderLogs();
     });
     return () => {
-      abortCtrl?.abort();
+      controller.dispose();
       container.remove();
     };
   });

@@ -1,14 +1,16 @@
 /**
- * kernel-gui 插件（v0.0.9）
- * 内核管理界面：全屏面板 + 6 tab（总览/插件/服务与工具/配置/会话存储/日志）。
- * 独立插件，不侵入 fallback-gui；同进程直接 inject 内核服务，无需 RPC。
- * 参考 dsh web GUI（槽位 + 面板服务）+ RikkaHub（分区卡片）+ 市面插件管理共性。
+ * kernel-gui 插件（v0.0.19）
+ * 内核管理界面：全屏面板 + 6 tab（总览/空间站/服务与工具/配置/会话存储/日志）。
+ * 独立插件，不侵入各 GUI；同进程直接 inject 内核服务，无需 RPC。
+ * 入口统一走 'kernel-gui:open' 事件（由当前激活的 GUI 提供唯一入口按钮，v0.0.19 起无 FAB）。
  */
 import { Context } from '@deepseek-ai/cordis';
 import { logger } from '../core/logger';
 import { createSession } from '../core/session';
 import { fetchLatestRelease, downloadApk, isNewer, lastFetchError } from './update-checker';
 import { VERSION as CURRENT_VERSION } from '../core/version';
+import { GUI_THEMES } from '../core/gui-registry';
+import type { TopologyNode } from '../core/topology';
 import type { Session } from '../core/types';
 
 export const name = 'kernel-gui';
@@ -30,26 +32,7 @@ interface RuntimeLike {
   forEach?(cb: (f: FiberLike) => void): void;
 }
 
-const FIBER_STATE_LABEL: Record<number, string> = {
-  0: '等待',
-  1: '加载中',
-  2: '运行中',
-  3: '失败',
-  4: '已禁用',
-  5: '卸载中',
-};
-
 export function apply(ctx: Context): void {
-  // 右下角 FAB（上移到输入区之上，避免与发送按钮重叠）
-  const fab = document.createElement('button');
-  fab.textContent = '内核';
-  fab.style.cssText =
-    'position:fixed;right:16px;bottom:88px;z-index:50;padding:8px 14px;background:#1f2328;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:500;cursor:pointer;box-shadow:0 2px 12px rgba(31,35,40,.3);';
-  // 异常红点：有 FAILED 插件时显示（P2）
-  const redDot = document.createElement('span');
-  redDot.style.cssText =
-    'position:absolute;top:-3px;right:-3px;width:12px;height:12px;border-radius:50%;background:#e5484d;border:2px solid #fff;display:none;';
-  fab.appendChild(redDot);
 
   // 全屏面板
   const panel = document.createElement('div');
@@ -109,15 +92,22 @@ export function apply(ctx: Context): void {
         <div style="background:#fff;border:1px solid #ececf1;border-radius:14px;padding:16px;margin-top:16px;">
           <div style="font-size:14px;font-weight:600;color:#1f2328;margin-bottom:8px;">主题</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <button data-ktheme="" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid #d9dce3;background:#fff;color:#3c4353;">默认</button>
-            ${ctx.topology
-              .getTopology()
-              .nodes.filter((n) => n.kind === 'theme')
-              .map(
-                (t) =>
-                  `<button data-ktheme="${esc(t.id)}" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${t.stateCode === 2 ? '#4f6ef7' : '#d9dce3'};background:${t.stateCode === 2 ? '#eef1ff' : '#fff'};color:${t.stateCode === 2 ? '#4f6ef7' : '#3c4353'};">${esc(t.name)}</button>`,
-              )
-              .join('')}
+            ${(() => {
+              const activeThemeId =
+                ctx.topology
+                  .getTopology()
+                  .nodes.find((n) => n.kind === 'theme' && n.stateCode === 2)?.id ?? '';
+              const btn = (id: string, label: string) => {
+                const active = id === activeThemeId;
+                return `<button data-ktheme="${esc(id)}" style="padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ${active ? '#4f6ef7' : '#d9dce3'};background:${active ? '#eef1ff' : '#fff'};color:${active ? '#4f6ef7' : '#3c4353'};">${esc(label)}</button>`;
+              };
+              return (
+                btn('', '默认') +
+                Object.entries(GUI_THEMES)
+                  .map(([id, meta]) => btn(id, meta.label))
+                  .join('')
+              );
+            })()}
           </div>
         </div>
       </div>`;
@@ -125,44 +115,80 @@ export function apply(ctx: Context): void {
 
   function renderTopology(): string {
     const topo = ctx.topology.getTopology();
-    const modules = topo.nodes.filter((n) => n.kind !== 'core');
+    const active = topo.nodes.filter((n) => n.kind !== 'core' && n.stateCode === 2);
+    // 停靠可达性：从核心沿 dockParent 链可达的 ACTIVE 插件才算贴靠；环/父未加载 → 进未加载区
+    const dockedIds = new Set<string>();
+    const reachable = (id: string, seen: Set<string>): boolean => {
+      if (id === 'core') return true;
+      if (seen.has(id)) return false; // 依赖环，防死循环
+      seen.add(id);
+      const node = active.find((n) => n.id === id);
+      return node ? reachable(node.dockParent, seen) : false;
+    };
+    for (const n of active) {
+      if (reachable(n.id, new Set())) dockedIds.add(n.id);
+    }
+    const docked = active.filter((n) => dockedIds.has(n.id));
+    const undocked = [
+      ...active.filter((n) => !dockedIds.has(n.id)),
+      ...topo.nodes.filter((n) => n.kind !== 'core' && n.stateCode !== 2),
+    ];
 
-    // 固定径向布局参数（moduleR 保证卡片不越界：cx±moduleR±52 落在 [0,340] 内）
     const W = 340;
-    const H = 440;
+    const H = 420;
     const cx = W / 2;
     const cy = H / 2;
     const coreR = 44;
-    const portR = 76;
-    const moduleR = 110;
 
-    // 端口位置（核心舱圆周，等角度）
-    const portPos = topo.ports.map((p, i) => {
-      const angle = (-90 + (i * 360) / Math.max(topo.ports.length, 1)) * (Math.PI / 180);
-      return { name: p.name, color: p.color, x: cx + portR * Math.cos(angle), y: cy + portR * Math.sin(angle) };
-    });
+    // 贴靠半径：卡片紧贴核心（间距 6），插件多时卡片缩窄（防互相遮挡）
+    const k = docked.length;
+    const cardW = Math.max(72, Math.min(104, 104 - Math.max(0, k - 6) * 6));
+    const moduleR = Math.max(coreR + 6 + cardW / 2, 96);
 
-    // 舱段位置（环绕核心舱，等角度）
-    const modulePos = modules.map((n, i) => {
-      const angle = (-90 + (i * 360) / Math.max(modules.length, 1)) * (Math.PI / 180);
-      return { node: n, x: cx + moduleR * Math.cos(angle), y: cy + moduleR * Math.sin(angle) };
-    });
+    // 停靠布局：ACTIVE 插件贴靠核心（或其依赖的已贴靠插件），贴靠 = 已加载，不画线
+    const pos = new Map<string, { x: number; y: number; angle: number }>();
+    pos.set('core', { x: cx, y: cy, angle: -Math.PI / 2 });
+    const kidsOf = (id: string) => docked.filter((n) => n.dockParent === id);
+    const placedIds = new Set<string>();
+    const place = (id: string, level: number): void => {
+      if (placedIds.has(id)) return;
+      placedIds.add(id);
+      const kids = kidsOf(id);
+      const parent = pos.get(id)!;
+      const n = kids.length;
+      kids.forEach((kid, i) => {
+        let angle: number;
+        if (level === 0) {
+          // 核心的孩子：绕核心等角（12 点方向起）
+          angle = (-90 + (i * 360) / Math.max(n, 1)) * (Math.PI / 180);
+        } else {
+          // 贴靠子层：沿父方向两侧展开
+          const spread = n > 1 ? (n - 1) * 0.45 : 0.5;
+          angle = parent.angle + (i - (n - 1) / 2) * Math.min(spread / Math.max(n - 1, 1), 0.9);
+        }
+        const R = level === 0 ? moduleR : 62;
+        const x = parent.x + R * Math.cos(angle);
+        const y = parent.y + R * Math.sin(angle);
+        pos.set(kid.id, { x, y, angle });
+        place(kid.id, level + 1);
+      });
+    };
+    place('core', 0);
 
     const stateColor = (code: number) => (code === 2 ? '#1a9e6b' : code === 3 ? '#e5484d' : code === 0 || code === 1 ? '#e8912d' : '#8a90a0');
 
-    // SVG 连线：端口 → 舱段（供给管线）
+    // 过桥管线：只有依赖越过停靠邻接的插件才画线（一般插件没有）
     const edgesSvg = topo.edges
       .map((e) => {
-        const from = portPos.find((p) => p.name === e.fromPort);
-        const to = modulePos.find((m) => m.node.id === e.toNode);
+        const from = pos.get(e.from);
+        const to = pos.get(e.to);
         if (!from || !to) return '';
-        const color = topo.ports.find((p) => p.name === e.fromPort)?.color ?? '#888';
-        const stroke = e.status === 'failed' ? '#e5484d' : color;
-        const dash = e.status === 'active' ? '' : e.status === 'failed' ? ' stroke-dasharray="4 4"' : ' stroke-dasharray="2 4"';
-        const opacity = e.status === 'active' ? 0.75 : 0.45;
+        const color = e.status === 'failed' ? '#e5484d' : '#e8912d';
+        const dash = e.status === 'active' ? ' stroke-dasharray="6 4"' : ' stroke-dasharray="2 4"';
+        const opacity = e.status === 'active' ? 0.9 : 0.5;
         const mx = (from.x + to.x) / 2;
         const my = (from.y + to.y) / 2;
-        return `<path d="M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}" stroke="${stroke}" stroke-width="2" fill="none" opacity="${opacity}"${dash}/>`;
+        return `<path d="M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}" stroke="${color}" stroke-width="1.5" fill="none" opacity="${opacity}"${dash}/>`;
       })
       .join('');
 
@@ -175,48 +201,66 @@ export function apply(ctx: Context): void {
         </div>
       </div>`;
 
-    // 端口
-    const portsHtml = portPos
-      .map(
-        (p) => `
-      <div style="position:absolute;left:${p.x - 9}px;top:${p.y - 9}px;width:18px;height:18px;border-radius:50%;background:${p.color};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.2);z-index:3;" title="${p.name}"></div>
-      <div style="position:absolute;left:${p.x - 20}px;top:${p.y + 12}px;width:40px;text-align:center;font-size:10px;color:#5a6172;z-index:3;">${p.name}</div>`,
-      )
-      .join('');
-
-    // 舱段
-    const modulesHtml = modulePos
-      .map((m) => {
-        const sc = stateColor(m.node.stateCode);
-        const isTheme = m.node.kind === 'theme';
-        const protectedP = ctx.topology.isProtected(m.node.id);
-        const toggleLabel = protectedP ? '受保护' : m.node.stateCode === 2 ? '禁用' : '启用';
-        const toggleStyle = protectedP
-          ? 'margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;background:#eef0f5;color:#8a90a0;'
-          : `margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;background:${m.node.stateCode === 2 ? '#fdecec;color:#e5484d' : '#e8f4ef;color:#1a9e6b'};`;
-        return `
-      <div data-kdetail="${esc(m.node.id)}" style="position:absolute;left:${m.x - 52}px;top:${m.y - 22}px;width:104px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;cursor:pointer;${isTheme ? 'opacity:.85;border-style:dashed;' : ''}">
-        <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.node.name)}">${esc(m.node.name)}</div>
+    // 舱段卡片（贴靠核心 / 贴靠已贴靠插件的都算已加载）
+    const cardHtml = (m: TopologyNode, x: number, y: number, style: string, width: number) => {
+      const sc = stateColor(m.stateCode);
+      const protectedP = ctx.topology.isProtected(m.id);
+      const toggleLabel = protectedP ? '受保护' : m.stateCode === 2 ? '禁用' : '启用';
+      const toggleStyle = protectedP
+        ? 'margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;background:#eef0f5;color:#8a90a0;'
+        : `margin-top:6px;padding:3px 10px;border:none;border-radius:6px;font-size:10px;cursor:pointer;background:${m.stateCode === 2 ? '#fdecec;color:#e5484d' : '#e8f4ef;color:#1a9e6b'};`;
+      return `
+      <div data-kdetail="${esc(m.id)}" style="position:absolute;left:${x - width / 2}px;top:${y - 24}px;width:${width}px;background:#fff;border:2px solid ${sc};border-radius:12px;padding:8px 10px;box-shadow:0 2px 10px rgba(31,35,40,.12);z-index:2;cursor:pointer;${style}">
+        <div style="font-size:12px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.name)}">${esc(m.name)}</div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:3px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${sc};"></span>
-          <span style="font-size:10px;color:${sc};">${esc(m.node.state)}</span>
+          <span style="font-size:10px;color:${sc};">${esc(m.state)}</span>
         </div>
-        <button data-ktoggle="${esc(m.node.id)}" style="${toggleStyle}" ${protectedP ? 'disabled' : ''}>${toggleLabel}</button>
+        <button data-ktoggle="${esc(m.id)}" style="${toggleStyle}" ${protectedP ? 'disabled' : ''}>${toggleLabel}</button>
       </div>`;
+    };
+    const modulesHtml = docked
+      .map((m) => {
+        const p = pos.get(m.id)!;
+        return cardHtml(m, p.x, p.y, m.kind === 'theme' ? 'opacity:.85;border-style:dashed;' : '', cardW);
       })
       .join('');
+
+    // 未加载区：非 ACTIVE 插件（失败/禁用/等待）放进底部停靠区
+    const undockedHtml =
+      undocked.length > 0
+        ? `<div style="margin-top:10px;padding:0 4px;">
+             <div style="font-size:11px;color:#8a90a0;margin-bottom:6px;">未加载区（${undocked.length}）· 修复或启用后自动贴靠核心</div>
+             <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">
+               ${undocked
+                 .map((m) => {
+                   const sc = stateColor(m.stateCode);
+                   const protectedP = ctx.topology.isProtected(m.id);
+                   return `<div data-kdetail="${esc(m.id)}" style="flex:0 0 96px;background:#fafbfc;border:2px dashed ${sc};border-radius:10px;padding:6px 8px;cursor:pointer;">
+                     <div style="font-size:11px;font-weight:600;color:#5a6172;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(m.name)}">${esc(m.name)}</div>
+                     <div style="display:flex;align-items:center;gap:4px;margin-top:3px;">
+                       <span style="width:7px;height:7px;border-radius:50%;background:${sc};"></span>
+                       <span style="font-size:9px;color:${sc};">${esc(m.state)}</span>
+                     </div>
+                     <button data-ktoggle="${esc(m.id)}" style="margin-top:4px;padding:2px 8px;border:none;border-radius:6px;font-size:9px;cursor:pointer;background:#e8f4ef;color:#1a9e6b;" ${protectedP ? 'disabled' : ''}>${protectedP ? '受保护' : '启用'}</button>
+                   </div>`;
+                 })
+                 .join('')}
+             </div>
+           </div>`
+        : '';
 
     return `
       <div style="padding:10px;overflow-x:auto;">
         <div style="position:relative;width:${W}px;height:${H}px;margin:0 auto;background:linear-gradient(180deg,#f7f8fa,#eef0f5);border:1px solid #ececf1;border-radius:16px;overflow:hidden;">
-          <svg width="${W}" height="${H}" style="position:absolute;inset:0;">${edgesSvg}</svg>
+          ${edgesSvg ? `<svg width="${W}" height="${H}" style="position:absolute;inset:0;pointer-events:none;">${edgesSvg}</svg>` : ''}
           ${coreHtml}
-          ${portsHtml}
           ${modulesHtml}
         </div>
+        ${undockedHtml}
       </div>
       ${renderPluginDetail()}
-      <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站只读视图 · 核心舱 + 4 服务端口 + ${modules.length} 个插件舱段</div>`;
+      <div style="padding:4px 16px 12px;font-size:11px;color:#8a90a0;text-align:center;">空间站 · 贴靠核心 = 已加载（${active.length}）· 过桥管线 ${topo.edges.length} 条 · 未加载 ${undocked.length}</div>`;
   }
 
   /** 详情抽屉：点击舱段卡片后展示插件详情 */
@@ -538,32 +582,18 @@ export function apply(ctx: Context): void {
     }
   }
 
-  function openPanel(): void {
+  function openPanel(tab?: string): void {
     panel.style.display = 'flex';
-    activeTab = '总览';
+    activeTab = TABS.includes(tab as Tab) ? (tab as Tab) : '总览';
     renderPanel();
   }
 
   ctx.effect(() => {
-    document.body.appendChild(fab);
     document.body.appendChild(panel);
-    fab.addEventListener('click', openPanel);
-    // 跨插件唤起：fallback-gui 顶栏"内核"按钮 emit 'kernel-gui:open'
-    ctx.on('kernel-gui:open', openPanel);
-    // 异常红点：有 FAILED 插件时 FAB 显示红点
-    const updateDot = () => {
-      try {
-        const topo = ctx.topology.getTopology();
-        redDot.style.display = topo.nodes.some((n) => n.stateCode === 3) ? 'block' : 'none';
-      } catch {
-        redDot.style.display = 'none';
-      }
-    };
-    ctx.on('internal/status', updateDot);
-    ctx.on('internal/plugin', updateDot);
-    updateDot();
+    // 跨插件唤起：当前激活 GUI 的唯一"内核"入口按钮 emit 'kernel-gui:open'
+    // （v0.0.19 起无 FAB，避免双入口；tab 参数支持直接打开指定页）
+    ctx.on('kernel-gui:open', (tab?: unknown) => openPanel(typeof tab === 'string' ? tab : undefined));
     return () => {
-      fab.remove();
       panel.remove();
     };
   });
