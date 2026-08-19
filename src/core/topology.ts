@@ -102,7 +102,8 @@ export class TopologyService extends Service {
     for (const runtime of runtimes) {
       const name = runtime.name ?? '(匿名)';
       const fibers = runtime.fibers ?? [];
-      const first = fibers[0];
+      // DisposableList 无下标访问，用迭代器取第一个 fiber
+      const first = [...fibers][0] as FiberLike | undefined;
       const stateCode = first?.state ?? 4;
       const inject = first?.inject ? Object.keys(first.inject) : [];
       const isTheme = name.startsWith('ui-');
