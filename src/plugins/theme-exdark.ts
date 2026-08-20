@@ -148,6 +148,20 @@ const STYLE = `
 .ex-right-sidebar-header { padding:calc(16px + env(safe-area-inset-top,0px)) 16px 12px; border-bottom:1px solid var(--ex-border); background:var(--ex-surface); }
 .ex-right-sidebar-header h2 { font-size:18px; text-transform:uppercase; letter-spacing:3px; color:var(--ex-accent); font-weight:900; }
 .ex-right-sidebar-content { flex:1; overflow-y:auto; padding:16px; }
+/* 分支总览（v0.0.65）：列表 + 候选切换 */
+.ex-branch-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; font-size:11px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:var(--ex-text2); }
+.ex-branch-refresh { background:none; border:1px solid var(--ex-border); color:var(--ex-text2); font-size:12px; padding:1px 8px; cursor:pointer; font-family:var(--ex-font); }
+.ex-branch-refresh:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
+.ex-branch-list { display:flex; flex-direction:column; gap:4px; }
+.ex-branch-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 8px; border:1px solid var(--ex-border); background:var(--ex-surface); font-size:11px; }
+.ex-branch-item.multi { border-color:var(--ex-border2); }
+.ex-branch-seq { color:var(--ex-text3); font-weight:bold; }
+.ex-branch-meta { color:var(--ex-text2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ex-branch-actions { display:flex; gap:2px; align-items:center; flex-shrink:0; }
+.ex-branch-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 5px; cursor:pointer; font-family:var(--ex-font); }
+.ex-branch-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); }
+.ex-branch-arrow:disabled { opacity:.35; cursor:default; }
+.ex-branch-count { padding:0 3px; color:var(--ex-text3); font-size:10px; }
 .ex-right-stats { background:var(--ex-surface); border:2px solid var(--ex-border); padding:12px; box-shadow:0 1px 6px rgba(0,0,0,.25); }
 .ex-right-stats-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px; }
 .ex-right-stats-label { color:var(--ex-text2); font-weight:bold; }
@@ -191,18 +205,30 @@ const STYLE = `
 .ex-btn-clear { font-size:10px; padding:4px 10px; border:2px solid var(--ex-border); background:var(--ex-surface2); color:var(--ex-text2); font-weight:bold; cursor:pointer; flex-shrink:0; font-family:var(--ex-font); text-transform:uppercase; letter-spacing:1px; box-shadow:0 1px 6px rgba(0,0,0,.25); transition:all .2s; }
 .ex-btn-clear:hover { background:var(--ex-accent2); border-color:var(--ex-accent); color:var(--ex-bg); transform:translateY(-1px); box-shadow:0 3px 10px rgba(0,0,0,.3); }
 .ex-btn-clear:active { transform:translateY(0); box-shadow:none; }
-/* ---- 消息区（气泡 = meta + 内容；A2：去粗边，明度分层 + 青绿左边条签名） ---- */
+/* ---- 消息区（气泡 = 内容 + 底部操作条；v0.0.65 改版：时间在气泡外上方，去角色标签，对齐由 wrap 控制） ---- */
 .ex-msgwrap { flex:1; position:relative; display:flex; flex-direction:column; min-height:0; }
 .ex-messages { flex:1; overflow-y:auto; padding:24px 16px 8px; display:flex; flex-direction:column; position:relative; z-index:1; }
-.ex-message { max-width:88%; margin-bottom:30px; background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px; min-width:80px; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
-.ex-message.ex-user { margin-left:auto; background:var(--ex-accent); color:var(--ex-bg); }
-.ex-message.ex-ai { margin-right:auto; background:var(--ex-surface2); border-left:3px solid var(--ex-accent); }
-/* 消息 meta：角色标识 + 时间戳 + 操作按钮（复制/重发） */
-.ex-msg-meta { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:10px; color:var(--ex-text3); }
-.ex-user .ex-msg-meta { color:rgba(26,26,26,0.75); }
-.ex-msg-role { font-weight:900; letter-spacing:1px; text-transform:uppercase; }
-.ex-ai .ex-msg-role { color:var(--ex-accent); }
-.ex-user .ex-msg-role { color:var(--ex-bg); }
+/* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左） */
+.ex-msg-wrap { max-width:88%; margin-bottom:22px; display:flex; flex-direction:column; }
+.ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
+.ex-msg-wrap.ex-ai { margin-right:auto; align-items:flex-start; }
+/* 时间戳：气泡外上方（小字，弱化） */
+.ex-msg-time { font-size:10px; color:var(--ex-text3); margin-bottom:4px; padding:0 4px; }
+.ex-msg-wrap.ex-user .ex-msg-time { color:rgba(26,26,26,0.7); }
+.ex-message { background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px 10px; min-width:80px; width:100%; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
+.ex-message.ex-user { background:var(--ex-accent); color:var(--ex-bg); }
+.ex-message.ex-ai { border-left:3px solid var(--ex-accent); }
+/* 底部操作条：左下角分支选择（←→ n/m）+ 右下角工具（复制/重发），APITOOL 底部按钮布局 */
+.ex-msg-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+.ex-msg-branch { display:flex; align-items:center; gap:2px; font-size:10px; color:var(--ex-text2); }
+.ex-user .ex-msg-branch { color:rgba(26,26,26,0.8); }
+.ex-msg-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 6px; cursor:pointer; font-family:var(--ex-font); }
+.ex-msg-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
+.ex-msg-arrow:disabled { opacity:.35; cursor:default; }
+.ex-user .ex-msg-arrow { border-color:rgba(26,26,26,0.5); color:var(--ex-bg); }
+.ex-user .ex-msg-arrow:hover:not(:disabled) { background:var(--ex-bg); color:var(--ex-accent); }
+.ex-msg-count { padding:0 2px; min-width:26px; text-align:center; }
+.ex-msg-tools { display:flex; gap:6px; margin-left:auto; }
 .ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); }
 .ex-msg-btn:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-user .ex-msg-btn { border-color:rgba(26,26,26,0.5); color:var(--ex-bg); }
@@ -631,9 +657,14 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       <aside class="ex-right-sidebar hidden" data-ex="right-sidebar">
         <div class="ex-right-sidebar-header"><h2>会话详情</h2></div>
         <div class="ex-right-sidebar-content">
-          <!-- APITOOL 分支树占位（功能未实装，仅视觉展示） -->
-          <div class="ex-right-branch">消息分支（开发中）</div>
-          <button type="button" class="ex-right-link" data-ex="branch-graph">查看分支图谱</button>
+          <!-- 分支总览（v0.0.65）：列出节点候选状态，候选>1 可直接切换；替代"消息分支（开发中）"占位 -->
+          <div class="ex-branch-head">
+            <span>消息分支</span>
+            <button type="button" class="ex-branch-refresh" data-ex="branch-graph" title="刷新分支列表">↻</button>
+          </div>
+          <div class="ex-branch-list" data-ex="branch-list">
+            <div style="font-size:11px;color:var(--ex-text3);padding:8px 0;">加载中...</div>
+          </div>
           <!-- 信息卡（保留） -->
           <div class="ex-right-stats" data-ex="right-stats">
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">插件</span><span class="ex-right-stats-value" data-ex="stat-plugins">-</span></div>
@@ -641,17 +672,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">服务商</span><span class="ex-right-stats-value" data-ex="stat-providers">-</span></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">配置分节</span><span class="ex-right-stats-value" data-ex="stat-configs">-</span></div>
           </div>
-          <!-- APITOOL 底部统计卡占位（功能未实装，仅视觉展示） -->
+          <!-- 底部统计卡（v0.0.65：真实 usage 累计 + 汇率折算） -->
           <div class="ex-right-stats" style="margin-top:12px;">
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本场计费</span><span class="ex-right-stats-value">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本场计费</span><span class="ex-right-stats-value" data-ex="stat-cost">–</span></div>
             <div class="ex-right-stats-divider"></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">账户余额</span><span class="ex-right-stats-value">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">账户余额</span><span class="ex-right-stats-value" data-ex="stat-balance">–</span></div>
             <div class="ex-right-stats-divider"></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">请求数</span><span class="ex-right-stats-value">0</span></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">对话 token</span><span class="ex-right-stats-value">0</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">请求数</span><span class="ex-right-stats-value" data-ex="stat-requests">0</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">对话 token</span><span class="ex-right-stats-value" data-ex="stat-total-tokens">0</span></div>
             <div class="ex-right-stats-divider"></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输入</span><span class="ex-right-stats-value">–</span></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输出</span><span class="ex-right-stats-value">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输入</span><span class="ex-right-stats-value" data-ex="stat-input">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输出</span><span class="ex-right-stats-value" data-ex="stat-output">–</span></div>
           </div>
         </div>
       </aside>
@@ -746,11 +777,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
                 <span class="ex-label-strong">主题样式</span>
                 <div class="ex-theme-options">
                   <div class="ex-theme-dot exdark selected" data-ex-theme="exdark" title="Exdark"></div>
-                  <div class="ex-theme-dot soviet" data-ex-theme="soviet" title="Soviet"></div>
-                  <div class="ex-theme-dot cyber" data-ex-theme="cyber" title="Cyber"></div>
                 </div>
               </div>
-              <div class="ex-hint">当前版本仅内置 Exdark 主题，其余为视觉占位。</div>
+              <div class="ex-hint">当前内置主题：Exdark。</div>
             </div>
           </div>
           <div class="ex-section" id="sec-pricing">
@@ -1019,6 +1048,35 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
     }
     renderPluginList();
+    // 回填对话参数（v0.0.64）：当前对话提示词（会话级）/ 温度 / 轮数 / 全局提示词
+    const chatCfg = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+    const convPromptEl = container.querySelector('#exConvPrompt') as HTMLTextAreaElement | null;
+    const convTempEl = container.querySelector('#exConvTemp') as HTMLInputElement | null;
+    const convTempValueEl = container.querySelector('[data-ex="convTempValue"]') as HTMLElement | null;
+    const convRoundsEl = container.querySelector('#exConvRounds') as HTMLInputElement | null;
+    const sysPromptEl = container.querySelector('#exSystemPrompt') as HTMLTextAreaElement | null;
+    if (convPromptEl) convPromptEl.value = controller.getConversationSystemPrompt();
+    const temp = Number(chatCfg.temperature);
+    const tempVal = Number.isFinite(temp) ? temp : 1.0;
+    if (convTempEl) convTempEl.value = String(tempVal);
+    if (convTempValueEl) convTempValueEl.textContent = String(tempVal);
+    if (convRoundsEl) convRoundsEl.value = Number(chatCfg.maxRounds) > 0 ? String(chatCfg.maxRounds) : '';
+    if (sysPromptEl) sysPromptEl.value = String(chatCfg.systemPrompt ?? '');
+    // 计费区回填（v0.0.65）：币种 select + 汇率输入（优先 config.chat.rate，否则缓存汇率）
+    const currencySel = container.querySelector('#exCurrency') as HTMLSelectElement | null;
+    if (currencySel) currencySel.value = chatCfg.currency === 'USD' ? '美元' : '人民币（默认）';
+    const rateInputEl = container.querySelector('#exRate') as HTMLInputElement | null;
+    if (rateInputEl) {
+      const cfgRate = Number(chatCfg.rate);
+      const cached = (() => {
+        try {
+          return ctx.rate.getCached();
+        } catch {
+          return null;
+        }
+      })();
+      rateInputEl.value = (Number.isFinite(cfgRate) && cfgRate > 0 ? cfgRate : cached ?? 7.2).toFixed(4);
+    }
     settingsModal.classList.add('show');
     // 指定分区：激活导航项 + 滚动到分区（供"运行记录"等入口直达；B1：滚动 body 容器而非 scrollIntoView，避免被固定 head 遮挡）
     if (tab) {
@@ -1058,7 +1116,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     chatBtn?.classList.toggle('active', agent.mode === 'chat');
   }
 
-  /** 渲染右侧边栏统计（插件/工具/服务商/配置分节数） */
+  /** 渲染右侧边栏统计（插件/工具/服务商/配置分节数 + v0.0.65 计费卡：token/费用/余额） */
   async function renderRightStats(): Promise<void> {
     const set = (sel: string, val: string): void => {
       const el = container.querySelector(sel) as HTMLElement | null;
@@ -1071,6 +1129,84 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       set('[data-ex="stat-configs"]', String(ctx.config.list().length));
     } catch {
       /* 统计失败保持占位 */
+    }
+    // 计费卡：会话级用量统计（真实 usage 累加，v0.0.65）
+    const stats = controller.getStats();
+    const chatCfgForStats = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+    const cfgRate = Number(chatCfgForStats.rate);
+    const rate = Number.isFinite(cfgRate) && cfgRate > 0
+      ? cfgRate
+      : (() => {
+          try {
+            return ctx.rate.getCached();
+          } catch {
+            return null;
+          }
+        })();
+    // 费用折算：USD → CNY（config.chat.rate 优先，其次缓存汇率，默认 7.2）或 USD
+    const inCny = chatCfgForStats.currency !== 'USD';
+    const cny = rate ?? 7.2;
+    const fmtMoney = (usd: number): string => {
+      if (usd <= 0) return '—';
+      const v = inCny ? usd * cny : usd;
+      const symbol = inCny ? '¥' : '$';
+      return `${symbol}${v.toFixed(4)}`;
+    };
+    set('[data-ex="stat-cost"]', fmtMoney(stats.totalCost));
+    set('[data-ex="stat-balance"]', '—'); // 余额需平台 API，通用服务商不支持（APITOOL 仅 DeepSeek 有 /user/balance）
+    set('[data-ex="stat-requests"]', String(stats.requestCount));
+    set('[data-ex="stat-total-tokens"]', stats.totalTokens.toLocaleString());
+    set('[data-ex="stat-input"]', stats.lastInputTokens > 0 ? stats.lastInputTokens.toLocaleString() : '—');
+    set('[data-ex="stat-output"]', stats.lastOutputTokens > 0 ? stats.lastOutputTokens.toLocaleString() : '—');
+  }
+
+  /** 渲染右侧栏分支总览（v0.0.65）：列出全部节点，候选>1 高亮 + ←→ 直接切换；替代"分支图谱"占位 */
+  function renderBranchList(): void {
+    const listEl = container.querySelector('[data-ex="branch-list"]') as HTMLElement | null;
+    if (!listEl) return;
+    const snap = controller.getBranchSnapshot();
+    if (snap.length === 0) {
+      listEl.innerHTML = '<div style="font-size:11px;color:var(--ex-text3);padding:8px 0;">（暂无消息）</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    for (const n of snap) {
+      const item = document.createElement('div');
+      item.className = `ex-branch-item${n.candidateCount > 1 ? ' multi' : ''}`;
+      const seq = document.createElement('span');
+      seq.className = 'ex-branch-seq';
+      seq.textContent = `#${n.nodeIndex + 1}`;
+      const meta = document.createElement('span');
+      meta.className = 'ex-branch-meta';
+      meta.textContent = `${n.role === 'user' ? '用户' : 'AI'} · ${n.candidateCount} 候选`;
+      item.appendChild(seq);
+      item.appendChild(meta);
+      if (n.candidateCount > 1) {
+        const actions = document.createElement('div');
+        actions.className = 'ex-branch-actions';
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'ex-branch-arrow';
+        prevBtn.textContent = '←';
+        prevBtn.disabled = n.selectIndex <= 0;
+        prevBtn.addEventListener('click', () => {
+          controller.selectCandidate(n.nodeId, n.selectIndex - 1);
+          renderBranchList();
+        });
+        const count = document.createElement('span');
+        count.className = 'ex-branch-count';
+        count.textContent = `${n.selectIndex + 1}/${n.candidateCount}`;
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'ex-branch-arrow';
+        nextBtn.textContent = '→';
+        nextBtn.disabled = n.selectIndex >= n.candidateCount - 1;
+        nextBtn.addEventListener('click', () => {
+          controller.selectCandidate(n.nodeId, n.selectIndex + 1);
+          renderBranchList();
+        });
+        actions.append(prevBtn, count, nextBtn);
+        item.appendChild(actions);
+      }
+      listEl.appendChild(item);
     }
   }
 
@@ -1390,7 +1526,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   }
 
   // ---- 视差背景（APITOOL initSVGParallax 简化版：Exdark 色相 160-190 的漂浮几何） ----
-  function initParallax(svg: SVGSVGElement): () => void {
+  function initParallax(svg: SVGSVGElement, options: { layerLevel?: number; fpsLimit?: number } = {}): () => void {
+    // v0.0.65：视差层数/帧率参数化（性能调节滑块驱动；默认 4 层/60fps 与旧行为一致）
+    const layerLevel = options.layerLevel ?? 4;
+    const fpsLimit = options.fpsLimit ?? 60;
     const NS = 'http://www.w3.org/2000/svg';
     const rand = (a: number, b: number) => a + Math.random() * (b - a);
     const colors = [
@@ -1411,7 +1550,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       rotSpeed: number;
     }
     const blobs: Blob[] = [];
-    const count = 26;
+    // 层数 → 元素数量：4 层=26（与旧默认一致），线性缩放
+    const count = Math.max(4, Math.round((26 * layerLevel) / 4));
     for (let i = 0; i < count; i++) {
       let el: SVGElement;
       const type = i % 3;
@@ -1451,9 +1591,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
     let raf = 0;
     let t0 = performance.now();
+    let lastDraw = 0;
+    // 帧率节流：rAF 每帧跑，但按 minInterval 更新位置（APITOOL setFpsLimit 思路）
+    const minInterval = 1000 / fpsLimit;
     const tick = (t: number): void => {
       const dt = Math.min((t - t0) / 1000, 0.05);
       t0 = t;
+      if (t - lastDraw < minInterval) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      lastDraw = t;
       const W = window.innerWidth;
       const H = window.innerHeight;
       for (const b of blobs) {
@@ -1558,7 +1706,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       const item = document.createElement('div');
       item.className = 'ex-conv-item' + (s.id === activeId ? ' active' : '') + (isPinned ? ' pinned' : '');
       item.dataset.exSwitch = s.id;
-      const count = s.node && Array.isArray(s.node.messages) ? s.node.messages.length : 0;
+      const count = Array.isArray(s.nodes) ? s.nodes.length : 0;
       const time = new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric' });
       // 平铺：无 hover 按钮（▲/× 已删），长按弹二级菜单（置顶/分享/管理/删除/重新生成标题）
       item.innerHTML = `
@@ -1606,6 +1754,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
 
   // ---- 聊天状态机（共享控制器） ----
   let lastAiBubble: HTMLElement | null = null;
+  // 待发送图片（多模态 v0.0.64）：选择后暂存，随下一条消息发送；发送真正放行（onSendAccepted）后清空
+  let pendingImages: UIMessagePart[] = [];
+  /** 图片压缩处理中计数：>0 时拒绝发送（防止压缩未完成时漏发到下一轮） */
+  let processingImages = 0;
+  // 文件指示器（上传段复用；提前声明供 onSendAccepted 清空）
+  const fileIndicator = container.querySelector('[data-ex="file-indicator"]') as HTMLElement;
   const controller = createChatController(ctx, {
     messages: messagesEl,
     input: inputEl,
@@ -1618,29 +1772,78 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       confirmOversize(count, confirm);
     },
     renderMessage: (role: 'user' | 'ai', parts: UIMessagePart[], message?: Message): HTMLElement => {
-      const bubble = document.createElement('div');
-      bubble.className = `ex-message ex-${role}`;
-      const text = parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join('\n');
-
-      // meta 区：角色标识 + 时间戳 + 复制（AI 另加重发）
-      const meta = document.createElement('div');
-      meta.className = 'ex-msg-meta';
-      const roleLabel = document.createElement('span');
-      roleLabel.className = 'ex-msg-role';
-      roleLabel.textContent = role === 'user' ? '你' : 'AI';
-      const timeLabel = document.createElement('span');
+      // wrapper：时间在气泡外上方，气泡含内容 + 底部操作条（左下分支 ←→ n/m，右下工具）
+      const wrap = document.createElement('div');
+      wrap.className = `ex-msg-wrap ex-${role}`;
+      // 时间戳（气泡外上方，弱化；去掉了"AI/你"角色标签）
+      const timeLabel = document.createElement('div');
       timeLabel.className = 'ex-msg-time';
       timeLabel.textContent = new Date(message?.createdAt ?? Date.now()).toLocaleTimeString('zh-CN', {
         hour12: false,
         hour: '2-digit',
         minute: '2-digit',
       });
+      wrap.appendChild(timeLabel);
+
+      const bubble = document.createElement('div');
+      bubble.className = `ex-message ex-${role}`;
+      // 多模态渲染：文本→Markdown，图片→img（dataURL 直接显示；参考 RikkaHub UIMessagePart.Image）
+      const html = parts
+        .map((p) =>
+          p.type === 'text'
+            ? (p.text ? renderMarkdown(p.text) : '')
+            : `<img class="ex-msg-img" src="${esc(p.imageUrl)}" alt="${esc(p.alt ?? '图片')}" />`,
+        )
+        .join('');
+
+      // 内容区：完整消息直接渲染 Markdown/图片；流式空气泡等 onStreamEnd 收尾再渲染
+      const content = document.createElement('div');
+      content.className = 'ex-msg-content';
+      content.setAttribute('data-msg-content', '');
+      content.innerHTML = html;
+      bubble.appendChild(content);
+
+      // 底部操作条：左下角分支选择器（候选>1 时显示 ←→ n/m，RikkaHub ChatMessageBranch 式）+ 右下角工具（复制/重发）
+      const actions = document.createElement('div');
+      actions.className = 'ex-msg-actions';
+
+      // 分支选择器：查节点链快照，该消息候选数>1 才显示
+      const snap = message ? controller.getBranchSnapshot().find((n) => n.messageId === message.id) : undefined;
+      if (snap && snap.candidateCount > 1) {
+        const branch = document.createElement('div');
+        branch.className = 'ex-msg-branch';
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'ex-msg-arrow';
+        prevBtn.textContent = '←';
+        prevBtn.title = '上一个候选';
+        prevBtn.disabled = snap.selectIndex <= 0;
+        prevBtn.addEventListener('click', () => {
+          controller.selectCandidate(snap.nodeId, snap.selectIndex - 1);
+        });
+        const count = document.createElement('span');
+        count.className = 'ex-msg-count';
+        count.textContent = `${snap.selectIndex + 1}/${snap.candidateCount}`;
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'ex-msg-arrow';
+        nextBtn.textContent = '→';
+        nextBtn.title = '下一个候选';
+        nextBtn.disabled = snap.selectIndex >= snap.candidateCount - 1;
+        nextBtn.addEventListener('click', () => {
+          controller.selectCandidate(snap.nodeId, snap.selectIndex + 1);
+        });
+        branch.append(prevBtn, count, nextBtn);
+        actions.appendChild(branch);
+      }
+
+      // 右下角工具：复制（AI 另加重发——按消息 id 精确重发，RikkaHub regenerateAt 语义）
+      const tools = document.createElement('div');
+      tools.className = 'ex-msg-tools';
       const copyBtn = document.createElement('button');
       copyBtn.className = 'ex-msg-btn';
       copyBtn.textContent = '复制';
       copyBtn.title = '复制内容';
       copyBtn.addEventListener('click', () => {
-        copyToClipboard(content.textContent || text);
+        copyToClipboard(content.textContent || '');
         copyBtn.textContent = '已复制';
         copyBtn.classList.add('copied');
         window.setTimeout(() => {
@@ -1648,27 +1851,24 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           copyBtn.classList.remove('copied');
         }, 1200);
       });
-      meta.append(roleLabel, timeLabel, copyBtn);
+      tools.appendChild(copyBtn);
       if (role === 'ai') {
         const regenBtn = document.createElement('button');
         regenBtn.className = 'ex-msg-btn';
         regenBtn.textContent = '重发';
         regenBtn.title = '重新生成此回复';
         regenBtn.addEventListener('click', () => {
-          controller.regenerate();
+          if (message) controller.regenerateAt(message.id);
+          else controller.regenerate();
         });
-        meta.appendChild(regenBtn);
+        tools.appendChild(regenBtn);
       }
+      actions.appendChild(tools);
 
-      // 内容区：完整消息直接渲染 Markdown；流式空气泡等 onStreamEnd 收尾再渲染
-      const content = document.createElement('div');
-      content.className = 'ex-msg-content';
-      content.setAttribute('data-msg-content', '');
-      content.innerHTML = text ? renderMarkdown(text) : '';
-
-      bubble.append(meta, content);
-      lastAiBubble = bubble;
-      return bubble;
+      bubble.appendChild(actions);
+      wrap.appendChild(bubble);
+      lastAiBubble = wrap;
+      return wrap;
     },
     onRequireSettings: () => openSettings(),
     onSessionChange: (id) => {
@@ -1681,19 +1881,40 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         if (c) c.innerHTML = c.textContent ? renderMarkdown(c.textContent) : '';
       }
     },
+    // 发送校验通过、开始流式：清空待发送图片（校验失败时不清，附件保留可重发）
+    onSendAccepted: () => {
+      pendingImages = [];
+      fileIndicator.textContent = '';
+    },
   });
 
   logger.info('gui', 'Exdark 主题 GUI 已挂载');
 
   // ---- 生命周期 ----
+  // 视差句柄（性能调节滑块重建用，v0.0.65）
+  let currentStopParallax: (() => void) | null = null;
   ctx.effect(() => {
-    const stopParallax = initParallax(parallaxSvg);
+    const uiCfg = (ctx.config.get('ui') ?? {}) as Record<string, unknown>;
+    const stopParallax = initParallax(parallaxSvg, {
+      layerLevel: Number(uiCfg.parallaxLayers) > 0 ? Number(uiCfg.parallaxLayers) : 4,
+      fpsLimit: Number(uiCfg.fps) > 0 ? Number(uiCfg.fps) : 60,
+    });
+    currentStopParallax = stopParallax;
     updateModelStatus();
     resetInputUI();
 
-    // 发送 / 中止 / Enter（中文输入法组合态回车不发送）
+    // 发送 / 中止 / Enter（中文输入法组合态回车不发送）；有待发送图片时走 sendWithAttachments（文本+图片一起发）。
+    // 图片清空由 onSendAccepted 回调执行（发送校验通过才清，失败保留可重发）；压缩中拒绝发送防图片漏发
     sendEl.addEventListener('click', () => {
-      controller.send();
+      if (processingImages > 0) {
+        showToast('图片处理中，请稍候...');
+        return;
+      }
+      if (pendingImages.length > 0) {
+        controller.sendWithAttachments(pendingImages);
+      } else {
+        controller.send();
+      }
       window.setTimeout(resetInputUI, 0);
     });
     stopEl.addEventListener('click', controller.stop);
@@ -1718,12 +1939,22 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     syncWebSearchBtn();
 
     // 功能工具栏：Think 思考强度（点击弹滑块：最小=不思考 / 上一档=自动 / 最大=最大思考）
+    // v0.0.64：档位持久化到 config.chat.thinkLevel（初始化回填、变更写回），发送时由 chat-controller 传入 request
     const deepThinkBtn = container.querySelector('[data-ex="deepthink"]') as HTMLButtonElement;
     const thinkPop = container.querySelector('[data-ex="think-pop"]') as HTMLElement | null;
     const thinkSlider = container.querySelector('[data-ex="think-slider"]') as HTMLInputElement | null;
     const thinkValueEl = container.querySelector('[data-ex="think-value"]') as HTMLElement | null;
     // 强度档位：0=不思考 1=自动 2=低 3=中 4=高 5=最大（6 档对应刻度 6 个字）
-    let thinkLevel = 1; // 默认自动
+    const readThinkLevel = (): number => {
+      const v = (ctx.config.get('chat') as Record<string, unknown> | undefined)?.thinkLevel;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 && n <= 5 ? Math.round(n) : 1;
+    };
+    const writeThinkLevel = (level: number): void => {
+      const chat = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+      ctx.config.set('chat', { ...chat, thinkLevel: level });
+    };
+    let thinkLevel = readThinkLevel(); // 默认自动
     const THINK_LABELS = ['不思考', '自动', '低', '中', '高', '最大'];
     const updateThinkLabel = (): void => {
       deepThinkBtn.textContent = thinkLevel === 0 ? 'Think' : `Think: ${THINK_LABELS[thinkLevel]}`;
@@ -1744,6 +1975,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     });
     thinkSlider?.addEventListener('change', () => {
       thinkLevel = Number(thinkSlider.value);
+      writeThinkLevel(thinkLevel); // 持久化：发送时生效
       updateThinkLabel();
       thinkPop?.classList.remove('show');
       showToast(thinkLevel === 0 ? '思考已关闭' : thinkLevel === 1 ? '思考：自动' : `思考强度：${THINK_LABELS[thinkLevel]}`);
@@ -1755,14 +1987,72 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
     });
 
-    // 功能工具栏：上传文件（显示文件名占位）
+    // 功能工具栏：上传文件（v0.0.64：图片读入→canvas 压缩→dataURL，随发送一起发给模型）
+    // 参考 RikkaHub FileEncoder：强制 JPEG + 缩放到 maxDimension 内 + 选择时只暂存、编码统一在请求侧
     const fileInput = container.querySelector('[data-ex="file"]') as HTMLInputElement;
-    const fileIndicator = container.querySelector('[data-ex="file-indicator"]') as HTMLElement;
+    // fileIndicator 已在控制器旁提前声明（onSendAccepted 清空用），此处不再重复声明
+    // 单文件原始大小上限 10MB（dataURL 膨胀约 33%，超出会被 provider 拒）
+    const MAX_FILE_BYTES = 10 * 1024 * 1024;
+    const MAX_IMG_DIM = 2000;
+    const IMG_QUALITY = 0.85;
+    const readFileAsDataUrl = (file: File): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'));
+        reader.readAsDataURL(file);
+      });
+    /** 压缩图片：超出 MAX_IMG_DIM 的降采样并转 JPEG（GIF 动图/小图原样返回） */
+    const compressImage = (dataUrl: string, mime: string): Promise<string> =>
+      new Promise((resolve) => {
+        if (mime === 'image/gif') return resolve(dataUrl);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, MAX_IMG_DIM / Math.max(img.width, img.height));
+            if (scale >= 1) return resolve(dataUrl); // 小图不压缩
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            const ctx2d = canvas.getContext('2d');
+            if (!ctx2d) return resolve(dataUrl);
+            ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', IMG_QUALITY));
+          } catch {
+            resolve(dataUrl); // 压缩失败降级用原图
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      });
     fileInput.addEventListener('change', () => {
-      if (fileInput.files && fileInput.files.length > 0) {
-        fileIndicator.textContent = [...fileInput.files].map((f) => f.name).join(', ');
-        showToast(`已选择 ${fileInput.files.length} 个文件（上传功能开发中）`);
-      }
+      const files = fileInput.files ? [...fileInput.files] : [];
+      fileInput.value = ''; // 允许重复选同一文件
+      if (files.length === 0) return;
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      const skipped = files.length - images.length;
+      if (skipped > 0) showToast(`已忽略 ${skipped} 个非图片文件（当前仅支持图片）`);
+      const valid = images.filter((f) => f.size <= MAX_FILE_BYTES);
+      const oversize = images.length - valid.length;
+      if (oversize > 0) showToast(`已忽略 ${oversize} 个超过 10MB 的图片`);
+      void (async () => {
+        processingImages += valid.length;
+        try {
+          for (const f of valid) {
+            try {
+              const raw = await readFileAsDataUrl(f);
+              const compressed = await compressImage(raw, f.type);
+              pendingImages.push({ type: 'image', imageUrl: compressed, alt: f.name });
+            } catch (error) {
+              showToast(`读取 ${f.name} 失败：${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+        } finally {
+          processingImages = Math.max(0, processingImages - valid.length);
+        }
+        fileIndicator.textContent = pendingImages.length > 0 ? `已选 ${pendingImages.length} 张图片` : '';
+        if (pendingImages.length > 0) showToast(`已添加 ${pendingImages.length} 张图片，随下一条消息发送`);
+      })();
     });
 
     // 侧边栏抽屉（移动端）：开关按钮 + 遮罩点外关闭
@@ -1928,6 +2218,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       rightSidebar.classList.toggle('hidden');
       rightMask.classList.toggle('show', !rightSidebar.classList.contains('hidden'));
       void renderRightStats();
+      renderBranchList();
     });
     // 更多菜单：能力设置（打开独立全屏页，模式切换/工具管理/检查更新 全部集中在该页）
     const moreCapabilityBtn = container.querySelector('[data-ex="more-capability"]') as HTMLButtonElement | null;
@@ -2022,12 +2313,36 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         savePinned(set);
         void renderSessionList(controller.getSessionId());
       } else if (action === 'share') {
+        // 分享（v0.0.65）：Web Share API（Android WebView 支持）分享会话文本；不支持则复制到剪贴板
         void ctx.storage.getConversation(id).then((s) => {
           const title = s?.title ?? 'KIRUSRAFT 会话';
-          void navigator.clipboard.writeText(title).then(() => showToast('已复制会话标题')).catch(() => showToast('分享功能开发中'));
+          const bodyText = s?.nodes
+            ?.map((n) => {
+              const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+              const m = n.messages[idx];
+              const role = m?.role === 'user' ? '我' : 'AI';
+              const text = m?.parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join('\n') ?? '';
+              return text.trim() ? `${role}: ${text}` : '';
+            })
+            .filter((t) => t)
+            .join('\n\n') ?? '';
+          const shareText = `${title}\n\n${bodyText}`;
+          const canShare = typeof navigator.share === 'function';
+          if (canShare) {
+            void navigator
+              .share({ title, text: shareText })
+              .then(() => showToast('已分享'))
+              .catch((err) => {
+                if ((err as Error).name === 'AbortError') return;
+                void navigator.clipboard.writeText(shareText).then(() => showToast('已复制会话内容')).catch(() => showToast('分享失败'));
+              });
+          } else {
+            void navigator.clipboard.writeText(shareText).then(() => showToast('已复制会话内容')).catch(() => showToast('分享失败'));
+          }
         });
       } else if (action === 'manage') {
-        showToast('功能开发中：管理会话');
+        // 管理（v0.0.65）：打开管理中心聊天记录页（已有切换/删除/新建会话能力）
+        ctx.emit('kernel-gui:open', '聊天记录');
       } else if (action === 'delete') {
         if (window.confirm('确定删除该会话？')) {
           void ctx.storage.deleteConversation(id).then(() => {
@@ -2037,7 +2352,30 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           });
         }
       } else if (action === 'rename') {
-        showToast('功能开发中：重新生成标题');
+        // 重新生成标题（v0.0.65）：取第一条用户消息文本前 30 字作标题（APITOOL autoTitle 截断规则）
+        void ctx.storage.getConversation(id).then((s) => {
+          const firstUser = s?.nodes
+            ?.map((n) => {
+              const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+              return n.messages[idx];
+            })
+            .find((m) => m?.role === 'user');
+          const text = firstUser?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('').trim();
+          if (!text) {
+            showToast('会话无用户消息，无法生成标题');
+            return;
+          }
+          const newTitle = text.replace(/["“”‘’]/g, '').slice(0, 30);
+          void ctx.storage.getConversation(id).then((conv) => {
+            if (!conv) return;
+            conv.title = newTitle;
+            void ctx.storage.saveConversation(conv).then(() => {
+              void renderSessionList(controller.getSessionId());
+              if (controller.getSessionId() === id) void updateTopbarTitle(id);
+              showToast(`标题已更新：${newTitle}`);
+            });
+          });
+        });
       }
     });
     // 点击别处关闭菜单
@@ -2048,8 +2386,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 插件管理入口：在设置弹窗左侧导航（唯一入口，不放在更多菜单）
     // 侧边栏底部：设置入口（参考 rikka 列表底部）
     sidebarSettingsBtn.addEventListener('click', () => openSettings());
-    // 右侧栏：查看分支图谱（占位）
-    branchGraphBtn.addEventListener('click', () => showToast('功能开发中：分支图谱'));
+    // 右侧栏：刷新分支列表（替代"查看分支图谱"占位）
+    branchGraphBtn.addEventListener('click', () => {
+      renderBranchList();
+      showToast('分支列表已刷新');
+    });
 
     // ==================== 设置面板交互（APITOOL 复刻：功能占位）====================
     // 遮罩点击关闭（全屏页面下几乎不会触发，保留防御）
@@ -2085,38 +2426,71 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       if (!activeId) return;
       settingsNav.querySelectorAll<HTMLElement>('.ex-nav-item').forEach((n) => n.classList.toggle('active', n.dataset.exNav === activeId));
     });
-    // 帧率滑块（档位语义：滑块 0-3 映射 15/30/60/120 FPS，默认 60）
+    // 帧率滑块（档位语义：滑块 0-3 映射 15/30/60/120 FPS，默认 60；v0.0.65 change 持久化 + 重建视差）
     const FPS_TIERS = [15, 30, 60, 120] as const;
     const fpsSlider = container.querySelector('[data-ex="fpsSlider"]') as HTMLInputElement | null;
     const fpsValueEl = container.querySelector('[data-ex="fpsValue"]') as HTMLElement | null;
-    fpsSlider?.addEventListener('input', () => {
+    fpsSlider?.addEventListener('change', () => {
       const fps = FPS_TIERS[Number(fpsSlider.value)] ?? 60;
       if (fpsValueEl) fpsValueEl.textContent = String(fps);
-      showToast(`功能开发中：帧率 ${fps} FPS`);
+      const ui = (ctx.config.get('ui') ?? {}) as Record<string, unknown>;
+      ctx.config.set('ui', { ...ui, fps });
+      // 重建视差（帧率生效）
+      currentStopParallax?.();
+      const uiCfg2 = (ctx.config.get('ui') ?? {}) as Record<string, unknown>;
+      currentStopParallax = initParallax(parallaxSvg, {
+        layerLevel: Number(uiCfg2.parallaxLayers) > 0 ? Number(uiCfg2.parallaxLayers) : 4,
+        fpsLimit: fps,
+      });
+      showToast(`帧率已设为 ${fps} FPS`);
     });
-    // 视差层数滑块（占位：仅更新数值显示）
-    parallaxSlider.addEventListener('input', () => {
-      parallaxValueEl.textContent = parallaxSlider.value;
+    // 视差层数滑块（v0.0.65：change 持久化 + 重建视差）
+    parallaxSlider.addEventListener('change', () => {
+      const layers = Number(parallaxSlider.value);
+      parallaxValueEl.textContent = String(layers);
+      const ui = (ctx.config.get('ui') ?? {}) as Record<string, unknown>;
+      ctx.config.set('ui', { ...ui, parallaxLayers: layers });
+      // 重建视差（层数生效）
+      currentStopParallax?.();
+      const uiCfg3 = (ctx.config.get('ui') ?? {}) as Record<string, unknown>;
+      currentStopParallax = initParallax(parallaxSvg, {
+        layerLevel: layers,
+        fpsLimit: Number(uiCfg3.fps) > 0 ? Number(uiCfg3.fps) : 60,
+      });
+      showToast(`视差层数已设为 ${layers}`);
     });
-    // 对话 Temperature 滑块（占位：仅更新数值显示）
+    // 对话 Temperature 滑块：实时更新数值显示；保存时由设置页 settingsSave 写入 config.chat.temperature
     const convTempSlider = container.querySelector('[data-ex="convTemp"]') as HTMLInputElement | null;
     const convTempValueEl = container.querySelector('[data-ex="convTempValue"]') as HTMLElement | null;
     convTempSlider?.addEventListener('input', () => {
       if (convTempValueEl) convTempValueEl.textContent = Number(convTempSlider.value).toFixed(1);
     });
-    // 主题点（占位：仅 Exdark 可选）
+    // 主题点（v0.0.65：仅 Exdark 内置，点选保持选中态）
     settingsBody.addEventListener('click', (e) => {
       const dot = (e.target as HTMLElement).closest('[data-ex-theme]') as HTMLElement | null;
       if (!dot) return;
-      const theme = dot.dataset.exTheme;
-      if (theme !== 'exdark') {
-        showToast('功能开发中：仅内置 Exdark 主题');
-        return;
-      }
       settingsBody.querySelectorAll('.ex-theme-dot').forEach((n) => n.classList.remove('selected'));
       dot.classList.add('selected');
     });
-    // 计费同步汇率（占位）
+    // 计费区（v0.0.65 做实）：币种选择持久化 config.chat.currency（默认 CNY）；汇率同步已成熟（rate.sync 多源+缓存）
+    const currencySel = container.querySelector('#exCurrency') as HTMLSelectElement | null;
+    currencySel?.addEventListener('change', () => {
+      const chat = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+      ctx.config.set('chat', { ...chat, currency: currencySel.value === '美元' ? 'USD' : 'CNY' });
+      showToast(`币种已切换：${currencySel.value}`);
+    });
+    // 汇率手动输入：change 时校验 1~30 写入 config.chat.rate（供计费折算；同步按钮优先用 rate.sync 缓存）
+    const rateInputEl = container.querySelector('#exRate') as HTMLInputElement | null;
+    rateInputEl?.addEventListener('change', () => {
+      const v = Number(rateInputEl.value);
+      if (!Number.isFinite(v) || v <= 1 || v >= 30) {
+        showToast('汇率无效（需在 1~30 之间）');
+        return;
+      }
+      const chat = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+      ctx.config.set('chat', { ...chat, rate: Math.round(v * 10000) / 10000 });
+      showToast(`已保存汇率 1 USD = ${rateInputEl.value} CNY`);
+    });
     syncRateBtn.addEventListener('click', () => {
       void (async () => {
         syncRateBtn.disabled = true;
@@ -2135,18 +2509,147 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         }
       })();
     });
-    // 导出 / 导入存档（占位）
-    exportDataBtn.addEventListener('click', () => showToast('功能开发中：导出存档'));
-    importDataBtn.addEventListener('click', () => showToast('功能开发中：导入存档'));
-    // 危险重置（占位：仅确认提示，不动数据层）
-    resetAppBtn.addEventListener('click', () => {
-      if (window.confirm('确定重置所有数据？当前为占位，不会真正清空数据。')) {
-        showToast('功能开发中：重置所有数据');
-      }
+    // 导出 / 导入存档（v0.0.65：自己的 JSON 格式，不兼容 apitool；复用 logger.download Blob 范式）
+    // 格式 { app:'kirusraft', version:1, exportedAt, conversations: Session[] }（不含 apiKey 等敏感配置）
+    exportDataBtn.addEventListener('click', () => {
+      void (async () => {
+        try {
+          const conversations = await ctx.storage.exportAll();
+          const data = {
+            app: 'kirusraft',
+            version: 1,
+            exportedAt: Date.now(),
+            conversations,
+          };
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const stamp = new Date().toISOString().slice(0, 10);
+          a.href = url;
+          a.download = `kirusraft-backup-${stamp}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          showToast(`已导出 ${conversations.length} 个会话`);
+        } catch (error) {
+          showToast(`导出失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
     });
-    // 取消 / 保存（占位）
+    importDataBtn.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        void (async () => {
+          try {
+            const text = await file.text();
+            const data = JSON.parse(text) as { app?: string; version?: number; conversations?: unknown };
+            if (data.app !== 'kirusraft' || !Array.isArray(data.conversations)) {
+              showToast('无效的存档格式（非 KIRUSRAFT 存档）');
+              return;
+            }
+            // 按 id 去重合并：已存在跳过（避免覆盖本地新数据），只导入新会话
+            const existing = await ctx.storage.listConversations();
+            const existingIds = new Set(existing.map((s) => s.id));
+            let imported = 0;
+            for (const conv of data.conversations) {
+              const c = conv as { id?: string; nodes?: unknown };
+              if (!c || typeof c.id !== 'string' || existingIds.has(c.id)) continue;
+              if (!Array.isArray(c.nodes)) continue;
+              // 净化（v0.0.65）：钳制 selectIndex、丢弃空节点、过滤无文本 parts 的空消息，防损坏存档崩渲染
+              const cleaned = (c.nodes as { messages?: unknown[]; selectIndex?: unknown }[])
+                .filter((n) => Array.isArray(n.messages) && n.messages.length > 0)
+                .map((n) => {
+                  const msgs = (n.messages as { parts?: unknown[]; role?: string }[]).filter(
+                    (m) => m && typeof m === 'object' && Array.isArray(m.parts) && m.parts.length > 0,
+                  );
+                  const sel = Number(n.selectIndex);
+                  return {
+                    ...n,
+                    messages: msgs,
+                    selectIndex: msgs.length > 0 && Number.isFinite(sel) && sel >= 0 && sel < msgs.length ? sel : 0,
+                  };
+                });
+              if (cleaned.length === 0) continue;
+              (c as { nodes?: unknown }).nodes = cleaned;
+              existingIds.add(c.id);
+              await ctx.storage.saveConversation(c as never);
+              imported++;
+            }
+            showToast(`导入完成：新增 ${imported} 个会话`);
+            void renderSessionList(controller.getSessionId());
+          } catch (error) {
+            showToast(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        })();
+      });
+      input.click();
+    });
+    // 危险重置（v0.0.65：双重确认后清空会话 + config + 汇率缓存 + 日志，不可恢复）
+    resetAppBtn.addEventListener('click', () => {
+      const first = window.confirm('确定重置所有数据？\n将清空：全部会话、全部设置、汇率缓存、运行日志。\n此操作不可恢复，建议先导出存档。');
+      if (!first) return;
+      const second = window.confirm('最后确认：真的要清除全部数据吗？');
+      if (!second) return;
+      void (async () => {
+        try {
+          await ctx.storage.clearAll();
+          // 清 config 分节（localStorage kirusraft.config.*）
+          for (const s of ctx.config.list()) {
+            try {
+              localStorage.removeItem(`kirusraft.config.${s.namespace}`);
+            } catch {
+              /* 忽略 */
+            }
+          }
+          // 清汇率缓存
+          try {
+            localStorage.removeItem('kirusraft.rate.usdcny');
+          } catch {
+            /* 忽略 */
+          }
+          // 清日志
+          logger.clear();
+          showToast('已重置全部数据');
+          window.setTimeout(() => window.location.reload(), 600);
+        } catch (error) {
+          showToast(`重置失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      })();
+    });
+    // 取消 / 保存（v0.0.64：保存真实写入 config.chat + 会话级提示词，关闭弹窗）
     settingsCancelBtn.addEventListener('click', closeSettings);
-    settingsSaveBtn.addEventListener('click', () => showToast('功能开发中：保存设置'));
+    settingsSaveBtn.addEventListener('click', () => {
+      const chatCfg = (ctx.config.get('chat') ?? {}) as Record<string, unknown>;
+      const convPromptEl = container.querySelector('#exConvPrompt') as HTMLTextAreaElement | null;
+      const convTempEl = container.querySelector('#exConvTemp') as HTMLInputElement | null;
+      const convRoundsEl = container.querySelector('#exConvRounds') as HTMLInputElement | null;
+      const sysPromptEl = container.querySelector('#exSystemPrompt') as HTMLTextAreaElement | null;
+      // 温度：0~2 合法才写入，非法回退 1.0
+      const temp = Number(convTempEl?.value);
+      const temperature = Number.isFinite(temp) && temp >= 0 && temp <= 2 ? temp : 1.0;
+      // 轮数：正整数或留空=不限（0）
+      const roundsRaw = (convRoundsEl?.value ?? '').trim();
+      let maxRounds = 0;
+      if (roundsRaw) {
+        const r = Number(roundsRaw);
+        maxRounds = Number.isFinite(r) && r >= 1 ? Math.round(r) : 0;
+      }
+      ctx.config.set('chat', {
+        ...chatCfg,
+        temperature,
+        maxRounds,
+        systemPrompt: sysPromptEl?.value ?? '',
+      });
+      // 当前对话系统提示词（会话级覆盖全局，留空=用全局；落盘随会话走）
+      controller.setConversationSystemPrompt(convPromptEl?.value ?? '');
+      showToast('设置已保存');
+      closeSettings();
+    });
 
     // ==================== 能力设置独立页交互 ====================
     // 返回按钮：关闭本页
@@ -2284,6 +2787,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     void renderSessionList(controller.getSessionId());
 
     return () => {
+      currentStopParallax = null;
       stopParallax();
       offModel();
       guideObserver.disconnect();

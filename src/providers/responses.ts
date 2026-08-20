@@ -22,13 +22,31 @@ function parseSseEvent(line: string): { data: unknown } | null {
   }
 }
 
-/** 构造 Responses input：普通消息数组或完整 input（工具循环用） */
+/** 构造 Responses input：普通消息数组或完整 input（工具循环用）。
+ *  content 字符串→input_text；部件数组→text→input_text、image→input_image（data URL，RikkaHub ResponseAPI 517-528 行） */
 function buildInput(request: ChatRequest): ResponsesInputItem[] {
   if (request.input && request.input.length > 0) return request.input;
   return (request.messages ?? []).map((m) => ({
     role: m.role,
-    content: [{ type: 'input_text', text: m.content }],
+    content: Array.isArray(m.content)
+      ? m.content.map((p): Record<string, unknown> =>
+          p.type === 'text'
+            ? { type: 'input_text', text: p.text }
+            : { type: 'input_image', image_url: p.imageUrl },
+        )
+      : [{ type: 'input_text', text: m.content }],
   }));
+}
+
+/** 思考强度档位 → Responses reasoning.effort（RikkaHub ResponseAPI 233-249：AUTO 省略 effort；
+ *  OFF→"none"；LOW/MEDIUM/HIGH/MAX 原样。KIRUSRAFT 档位 0=OFF 1=AUTO 2~5=低/中/高/最大） */
+function thinkToEffort(level: number | undefined): string | undefined {
+  if (level === undefined || level === 1) return undefined; // 自动 → 不写（模型默认）
+  if (level === 0) return 'none'; // 不思考
+  if (level === 2) return 'low';
+  if (level === 3) return 'medium';
+  if (level === 4) return 'high';
+  return 'max'; // 5=最大
 }
 
 /** 发起流式聊天，分发增量；收集 function 工具调用 */
@@ -54,6 +72,14 @@ export async function responsesStreamChat(request: ChatRequest, handlers: ChatSt
     stream: true,
     max_output_tokens: request.maxTokens ?? 4096,
   };
+  // 采样温度（可空则省略；参考 RikkaHub ResponseAPI 216-220）
+  if (request.temperature !== undefined) body.temperature = request.temperature;
+  // systemPrompt → 顶层 instructions（Responses API 惯例，RikkaHub ResponseAPI 222-228）
+  const system = request.systemPrompt?.trim();
+  if (system) body.instructions = system;
+  // 思考强度：reasoning.effort（AUTO 不写，模型默认；RikkaHub ResponseAPI 233-249）
+  const effort = thinkToEffort(request.thinkLevel);
+  if (effort) body.reasoning = { effort };
   if (request.tools && request.tools.length > 0) body.tools = request.tools;
 
   let response: Response;
@@ -179,6 +205,16 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, argCache: Map<str
           args,
           rawArguments: argumentsStr.length > 0 ? argumentsStr : undefined,
         });
+      }
+      break;
+    }
+    case 'response.completed': {
+      // usage 统计（v0.0.65 计费）：Responses API 在 completed 事件携带 usage
+      const u = record.usage as Record<string, unknown> | undefined;
+      if (u) {
+        const input = Number(u.input_tokens ?? 0);
+        const output = Number(u.output_tokens ?? 0);
+        handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output });
       }
       break;
     }

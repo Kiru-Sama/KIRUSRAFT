@@ -7,6 +7,7 @@
 import { Service, Context } from '@deepseek-ai/cordis';
 import { Db } from './db';
 import { logger } from './logger';
+import { migrateLegacySession } from './session';
 import type { Session, MessageNode } from './types';
 
 const DB_NAME = 'kirusraft';
@@ -48,32 +49,51 @@ export class StorageService extends Service {
     });
   }
 
-  /** 保存会话 + 消息节点（跨 store 单事务，保证原子性） */
+  /** 保存会话 + 全部消息节点（跨 store 单事务，保证原子性；nodes 链全量重写）
+   *  v0.0.65：节点链模型，Session.nodes 逐个写 messageNodes store（按 nodeIndex 排序） */
   async saveConversation(session: Session): Promise<void> {
     await this.ready;
     if (this.memoryFallback) {
       this.memorySessions.set(session.id, session);
       return;
     }
+    const nodes = Array.isArray(session.nodes) ? session.nodes : [];
+    // 先取旧节点 id（事务外查询），事务内删旧写新——防节点链缩短时留下孤儿节点
+    const oldNodes = await this.db.getByIndex<MessageNode>('messageNodes', 'byConversation', session.id);
+    const oldIds = new Set(oldNodes.map((n) => n.id));
+    for (const n of nodes) oldIds.delete(n.id);
     await this.db.transaction(['conversations', 'messageNodes'], 'readwrite', (tx) => {
       tx.objectStore('conversations').put(session);
-      if (session.node) tx.objectStore('messageNodes').put(session.node);
+      for (const id of oldIds) tx.objectStore('messageNodes').delete(id);
+      for (const n of nodes) tx.objectStore('messageNodes').put(n);
     });
   }
 
   async listConversations(): Promise<Session[]> {
     await this.ready;
     if (this.memoryFallback) {
-      return [...this.memorySessions.values()].sort((a, b) => b.createdAt - a.createdAt);
+      return [...this.memorySessions.values()].map((s) => migrateLegacySession(s)).sort((a, b) => b.createdAt - a.createdAt);
     }
     const sessions = await this.db.getAll<Session>('conversations');
-    return sessions.sort((a, b) => b.createdAt - a.createdAt);
+    const withNodes = await Promise.all(sessions.map((s) => this.attachNodes(s)));
+    return withNodes.sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async getConversation(id: string): Promise<Session | undefined> {
     await this.ready;
-    if (this.memoryFallback) return this.memorySessions.get(id);
-    return this.db.get<Session>('conversations', id);
+    if (this.memoryFallback) return migrateLegacySession(this.memorySessions.get(id) as Session & { node?: MessageNode });
+    const session = await this.db.get<Session>('conversations', id);
+    if (!session) return undefined;
+    return this.attachNodes(session);
+  }
+
+  /** 把会话的 nodes 链从 messageNodes store 组装回来（按 nodeIndex 排序）；兼容旧数据（单节点平铺）迁移 */
+  private async attachNodes(session: Session & { node?: MessageNode }): Promise<Session> {
+    const migrated = migrateLegacySession(session);
+    if (migrated.nodes) return migrated;
+    const nodes = await this.db.getByIndex<MessageNode>('messageNodes', 'byConversation', session.id);
+    migrated.nodes = nodes.sort((a, b) => a.nodeIndex - b.nodeIndex);
+    return migrated;
   }
 
   async getMessageNode(nodeId: string): Promise<MessageNode | undefined> {
@@ -97,6 +117,24 @@ export class StorageService extends Service {
         tx.objectStore('messageNodes').delete(nodeId);
       }
     });
+  }
+
+  /** 清空全部会话与消息节点（重置数据用；两 store 同事务，保证不留孤儿） */
+  async clearAll(): Promise<void> {
+    await this.ready;
+    if (this.memoryFallback) {
+      this.memorySessions.clear();
+      return;
+    }
+    await this.db.transaction(['conversations', 'messageNodes'], 'readwrite', (tx) => {
+      tx.objectStore('conversations').clear();
+      tx.objectStore('messageNodes').clear();
+    });
+  }
+
+  /** 全量导出（存档）：返回可序列化的会话数组（不含 apiKey 等敏感配置，config 走 localStorage 不带出） */
+  async exportAll(): Promise<Session[]> {
+    return this.listConversations();
   }
 }
 

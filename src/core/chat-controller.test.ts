@@ -22,22 +22,24 @@ function fakeSession(messages: { role: 'user' | 'ai'; parts: { type: 'text' | 'i
     id: 's1',
     title: '测试',
     createdAt: 0,
-    node: {
-      id: 'n1',
+    nodes: messages.map((m, i) => ({
+      id: `n${i}`,
       conversationId: 's1',
-      nodeIndex: 0,
-      messages: messages.map((m, i) => ({
-        id: `m${i}`,
-        role: m.role,
-        parts: m.parts.map((p) =>
-          p.type === 'text'
-            ? { type: 'text' as const, text: p.text ?? '' }
-            : { type: 'image' as const, imageUrl: p.imageUrl ?? '', alt: '' },
-        ),
-        createdAt: 0,
-      })),
-      selectIndex: messages.length - 1,
-    },
+      nodeIndex: i,
+      messages: [
+        {
+          id: `m${i}`,
+          role: m.role,
+          parts: m.parts.map((p) =>
+            p.type === 'text'
+              ? { type: 'text' as const, text: p.text ?? '' }
+              : { type: 'image' as const, imageUrl: p.imageUrl ?? '', alt: '' },
+          ),
+          createdAt: 0,
+        },
+      ],
+      selectIndex: 0,
+    })),
   };
 }
 

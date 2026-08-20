@@ -55,6 +55,13 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   // agent 配置分节：Agent/对话双模式 + 工具启用集合（工具管理）。mode: 'agent'(默认)/'chat'；
   // enabledTools: 工具名→是否启用，空={} 表示全开（默认）；web_search 独立受联网开关控制，不归这里管。
   ctx.config.register(ctx, { namespace: 'agent', displayName: 'Agent 模式', defaults: { mode: 'agent', enabledTools: {} } });
+  // chat 配置分节（v0.0.64）：对话参数（全局系统提示词/温度/上下文轮数/思考强度），
+  // 供设置页保存写入、chat-controller 读取后传给 provider（参考 RikkaHub Assistant 字段同源）。
+  ctx.config.register(ctx, {
+    namespace: 'chat',
+    displayName: '对话参数',
+    defaults: { systemPrompt: '', temperature: 1.0, maxRounds: 0, thinkLevel: 1, currency: 'CNY', rate: 0, priceInput: 0, priceOutput: 0 },
+  });
 
   // 4. 主题恢复 + GUI 仲裁（读 manifest 的 providesGui，替代旧 GUI_THEMES 硬编码）
   const themeManifests = PLUGINS.filter((m) => m.kind === 'ui-theme');

@@ -4,7 +4,7 @@
  * 与 OpenAI 兼容中转站。协议：POST {baseURL}/chat/completions，SSE 流式解析 choices[].delta。
  * 纯 ECMAScript fetch，无 Node 依赖。
  */
-import type { ChatRequest, ChatStreamHandlers } from '../core/types';
+import type { ChatMessagePart, ChatRequest, ChatStreamHandlers } from '../core/types';
 import type { ChatProvider } from './types';
 import { responsesStreamChat } from './responses';
 
@@ -20,7 +20,8 @@ function parseSseEvent(line: string): { data: unknown } | null {
   }
 }
 
-/** 构造 chat/completions 消息：普通消息数组或完整 input（工具循环用） */
+/** 构造 chat/completions 消息：普通消息数组或完整 input（工具循环用）。
+ *  content 为字符串时原样；为部件数组时映射 text→text、image→image_url（data URL）。 */
 function buildMessages(request: ChatRequest): Record<string, unknown>[] {
   if (request.input && request.input.length > 0) {
     // Responses input → OpenAI messages 的近似转换（工具回传）
@@ -32,15 +33,45 @@ function buildMessages(request: ChatRequest): Record<string, unknown>[] {
       if (it.type === 'function_call_output') {
         return { role: 'tool', tool_call_id: it.call_id, content: typeof it.output === 'string' ? it.output : JSON.stringify(it.output ?? '') };
       }
-      // input_text / input_image 等 → 简化
-      const text = (Array.isArray(it.content) ? it.content.map((c) => (typeof c === 'object' && c && 'text' in (c as object) ? (c as { text: string }).text : String(c))).join(' ') : String(it.content ?? ''));
-      return { role: it.role === 'ai' ? 'assistant' : it.role === 'user' ? 'user' : it.role, content: text };
+      // input_text / input_image 等 → 简化（input_image 图片必须映射为 image_url，否则 String() 得到 "[object Object]"）
+      const content = Array.isArray(it.content)
+        ? (it.content as Record<string, unknown>[]).map((p): Record<string, unknown> =>
+            p.type === 'input_text'
+              ? { type: 'text', text: String(p.text ?? '') }
+              : { type: 'image_url', image_url: { url: String(p.image_url ?? '') } },
+          )
+        : String(it.content ?? '');
+      return { role: it.role === 'ai' ? 'assistant' : it.role === 'user' ? 'user' : it.role, content };
     });
   }
-  return (request.messages ?? []).map((m) => ({
+  const messages = (request.messages ?? []).map((m) => ({
     role: m.role === 'ai' ? 'assistant' : 'user',
-    content: m.content,
+    content: Array.isArray(m.content) ? contentToChatParts(m.content) : m.content,
   }));
+  // systemPrompt（全局或会话级）→ 前置 system 消息（RikkaHub：chat 版保留在 messages 数组）
+  const system = request.systemPrompt?.trim();
+  if (system && messages[0]?.role !== 'system') {
+    messages.unshift({ role: 'system', content: system });
+  }
+  return messages;
+}
+
+/** ChatMessagePart[] → OpenAI chat 格式 content 数组（image_url 传 data URL，参考 RikkaHub ChatCompletionsAPI 631-644 行） */
+function contentToChatParts(parts: ChatMessagePart[]): Record<string, unknown>[] {
+  return parts.map((p) =>
+    p.type === 'text'
+      ? { type: 'text', text: p.text }
+      : { type: 'image_url', image_url: { url: p.imageUrl } },
+  );
+}
+
+/** 思考强度档位 → OpenAI chat 官方 reasoning_effort（RikkaHub ChatCompletionsAPI 396-402 行：
+ *  官方只支持 low/medium/high；AUTO 省略；OFF 落最低档。KIRUSRAFT 档位 0=OFF 1=AUTO 2~5=低/中/高/最大） */
+function thinkToEffort(level: number | undefined): string | undefined {
+  if (level === undefined || level <= 1) return undefined; // 不思考/自动 → 不写（服务商默认）
+  if (level === 2) return 'low';
+  if (level === 3) return 'medium';
+  return 'high'; // 4=高 5=最大 → 官方无更高档，落 high
 }
 
 /** 发起流式聊天，分发增量；收集工具调用 */
@@ -66,6 +97,13 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
     stream: true,
     max_tokens: request.maxTokens ?? 4096,
   };
+  // 请求 usage（计费统计 v0.0.65）：chat/completions 需显式 stream_options.include_usage 才返回
+  body.stream_options = { include_usage: true };
+  // 采样温度（可空则省略，服务商默认；参考 RikkaHub ChatCompletionsAPI 240-244）
+  if (request.temperature !== undefined) body.temperature = request.temperature;
+  // 思考强度：官方 reasoning_effort（AUTO/不思考不写，服务商默认）
+  const effort = thinkToEffort(request.thinkLevel);
+  if (effort) body.reasoning_effort = effort;
   if (request.tools && request.tools.length > 0) {
     body.tools = request.tools.map((t) => ({
       type: 'function',
@@ -174,6 +212,14 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<str
   if (typeof data !== 'object' || data === null) return;
   const record = data as Record<string, unknown>;
   const choices = record.choices;
+  // usage chunk：choices 为空数组、usage 有值（include_usage 时流末尾返回，v0.0.65 计费统计）
+  if ((!Array.isArray(choices) || choices.length === 0) && record.usage && typeof record.usage === 'object') {
+    const u = record.usage as Record<string, unknown>;
+    const input = Number(u.prompt_tokens ?? 0);
+    const output = Number(u.completion_tokens ?? 0);
+    handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output });
+    return;
+  }
   if (!Array.isArray(choices) || choices.length === 0) return;
   const choice = choices[0] as Record<string, unknown>;
   const delta = (choice.delta ?? {}) as Record<string, unknown>;

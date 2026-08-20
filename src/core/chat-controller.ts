@@ -10,9 +10,9 @@
  */
 import { Context } from '@deepseek-ai/cordis';
 import { runAgentLoop, type ToolExecutor } from './agent-loop';
-import { appendMessage, createSession, toChatMessages } from './session';
+import { appendMessage, createMessage, createSession, currentMessages, findNodeByMessage, forkSessionAtMessage, pushCandidate, setSelectIndex, toChatMessages, truncateAfter } from './session';
 import { logger } from './logger';
-import type { Session, Message, UIMessagePart, ProviderProfile } from './types';
+import type { Session, Message, MessageNode, SessionStats, UIMessagePart, ProviderProfile } from './types';
 
 export interface ChatElements {
   /** 消息列表容器 */
@@ -35,6 +35,8 @@ export interface ChatElements {
   onSessionChange?: (id: string) => void;
   /** 流结束回调（成功/错误/中止后触发一次；GUI 可用于 Markdown 全量渲染等收尾） */
   onStreamEnd?: () => void;
+  /** 发送真正放行回调（校验通过、开始流式时触发一次；GUI 用于清空待发送附件——校验失败时不清空，附件保留可重发） */
+  onSendAccepted?: () => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
   onLengthWarn?: (count: number, confirm: () => void) => void;
 }
@@ -42,6 +44,13 @@ export interface ChatElements {
 export interface ChatController {
   /** 发送输入框内容（发送/Enter 入口） */
   send(): void;
+  /** 发送输入框文本 + 附件部件（图片等；文本可为空串=纯图片）。
+   *  附件与文本合并为一条用户消息，随会话落盘（历史回显渲染 img）；校验失败不清空（GUI 侧保留可重发） */
+  sendWithAttachments(attachments: UIMessagePart[]): void;
+  /** 设置当前对话级系统提示词（覆盖全局；留空=用全局） */
+  setConversationSystemPrompt(prompt: string): void;
+  /** 读取当前对话级系统提示词（设置页回填用） */
+  getConversationSystemPrompt(): string;
   /** 中止当前流 */
   stop(): void;
   /** 切换会话（中止旧流、落盘、渲染目标会话） */
@@ -52,6 +61,16 @@ export interface ChatController {
   renameSession(title: string): void;
   /** 重新生成：截断到最后一条用户消息，用其内容重新发送 */
   regenerate(): void;
+  /** 按消息 id 重新生成（RikkaHub 语义：user 截断重发 / assistant push 新候选共享链） */
+  regenerateAt(messageId: string): void;
+  /** 切换分支候选（只改目标节点 selectIndex，后续链不动） */
+  selectCandidate(nodeId: string, selectIndex: number): void;
+  /** 从消息处 fork 新会话（复制截断节点链，原会话不动，切换过去） */
+  forkAt(messageId: string): void;
+  /** 节点链分支快照（GUI 渲染 ←→ 计数器 / 轻量总览用） */
+  getBranchSnapshot(): { nodeId: string; nodeIndex: number; candidateCount: number; selectIndex: number; messageId: string; role: 'user' | 'ai' }[];
+  /** 当前会话用量统计（计费卡渲染用） */
+  getStats(): SessionStats;
   /** 卸载：中止流并落盘（GUI effect 清理时调用） */
   dispose(): void;
 }
@@ -67,6 +86,22 @@ export const MAX_CONTEXT_CHARS = 100000;
 export interface AgentConfig {
   mode: 'agent' | 'chat';
   enabledTools: Record<string, boolean>;
+}
+
+/**
+ * 对话参数配置分节结构（index.ts 注册，namespace 'chat'，v0.0.64）。
+ * systemPrompt: 全局系统提示词（被会话级 systemPrompt 覆盖）；temperature: 采样温度（0~2）；
+ * maxRounds: 上下文轮数限制（0=不限）；thinkLevel: 思考强度档位（0=不思考 1=自动 2~5=低/中/高/最大）。
+ * 参考 RikkaHub Assistant（systemPrompt/temperature/contextMessageLimit/reasoningLevel 同源）。
+ */
+export interface ChatConfig {
+  systemPrompt?: string;
+  temperature?: number;
+  maxRounds?: number;
+  thinkLevel?: number;
+  /** 单价（USD/百万 token，计费估算用；不填=不折算金额，只统计 token） */
+  priceInput?: number;
+  priceOutput?: number;
 }
 
 /**
@@ -94,15 +129,23 @@ function buildAgentToolExecutor(ctx: Context, cfg: AgentConfig): ToolExecutor {
   };
 }
 
-/** 统计会话对话文本总字符数（只算 text 部件，image 部件不计——文件不塞进对话） */
+/** 统计会话对话文本总字符数（只算当前选中候选的 text 部件，image 部件不计——文件不塞进对话） */
 export function countContextChars(session: Session): number {
   let total = 0;
-  for (const node of session.node?.messages ?? []) {
-    for (const part of node.parts ?? []) {
+  for (const m of currentMessages(session)) {
+    for (const part of m.parts ?? []) {
       if (part.type === 'text') total += part.text.length;
     }
   }
   return total;
+}
+
+/** 按 chat 分节单价（USD/百万 token）估算一次请求费用；无单价返回 0 */
+export function estimateCost(inputTokens: number, outputTokens: number, cfg: ChatConfig): number {
+  const pi = Number(cfg.priceInput ?? 0);
+  const po = Number(cfg.priceOutput ?? 0);
+  if (pi <= 0 && po <= 0) return 0;
+  return (inputTokens / 1e6) * pi + (outputTokens / 1e6) * po;
 }
 
 export function createChatController(ctx: Context, els: ChatElements): ChatController {
@@ -139,6 +182,24 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       });
   }
 
+  /** 累计一次请求的 usage 到会话统计（v0.0.65 计费卡数据源） */
+  function accumulateUsage(inputTokens: number, outputTokens: number): void {
+    const chatCfg = (ctx.config.get('chat') ?? {}) as unknown as ChatConfig;
+    const s = session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0 };
+    s.requestCount++;
+    s.totalTokens += inputTokens + outputTokens;
+    s.lastInputTokens = inputTokens;
+    s.lastOutputTokens = outputTokens;
+    s.totalCost += estimateCost(inputTokens, outputTokens, chatCfg);
+    session.stats = s;
+    saveSessionSafe();
+  }
+
+  /** 当前会话用量统计（GUI 计费卡渲染用） */
+  function getStats(): SessionStats {
+    return session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0 };
+  }
+
   /**
    * 流式写入气泡内容：优先写气泡内的 [data-msg-content] 容器（GUI 气泡可保留 meta 区不被覆盖），
    * 无容器时整体回退 textContent（兼容纯文本气泡渲染器，如兜底 GUI）。
@@ -154,10 +215,26 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   function renderCurrent(): void {
     els.messages.innerHTML = '';
-    for (const m of session.node.messages) {
+    for (const m of currentMessages(session)) {
       els.messages.appendChild(els.renderMessage(m.role, m.parts, m));
     }
     els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  /** 节点链数据快照（GUI 渲染分支选择器/总览用）：每节点 id、候选数、当前选中、选中消息 id */
+  function getBranchSnapshot(): { nodeId: string; nodeIndex: number; candidateCount: number; selectIndex: number; messageId: string; role: 'user' | 'ai' }[] {
+    return session.nodes.map((n, i) => {
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      const m = n.messages[idx];
+      return {
+        nodeId: n.id,
+        nodeIndex: i,
+        candidateCount: n.messages.length,
+        selectIndex: idx,
+        messageId: m?.id ?? '',
+        role: m?.role ?? 'user',
+      };
+    });
   }
 
   async function switchSession(id: string): Promise<void> {
@@ -179,14 +256,14 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       const loadedConv = await ctx.storage.getConversation(id);
       // await 期间可能又发起了新的切换：过期的结果丢弃（latest-wins）
       if (seq !== switchSeq || disposed) return;
-      if (!loadedConv || !loadedConv.node || !Array.isArray(loadedConv.node.messages)) {
+      if (!loadedConv || !Array.isArray(loadedConv.nodes)) {
         logger.error('storage', `切换会话失败（数据损坏）: ${id}`);
         return;
       }
       session = loadedConv;
       renderCurrent();
       els.onSessionChange?.(session.id);
-      logger.info('gui', `已切换到会话 ${id}（${session.node.messages.length} 条消息）`);
+      logger.info('gui', `已切换到会话 ${id}（${session.nodes.length} 条消息）`);
     } catch (error) {
       logger.error('storage', `切换会话失败: ${String(error)}`);
     } finally {
@@ -199,11 +276,11 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     try {
       const list = await ctx.storage.listConversations();
       const latest = list[0];
-      if (latest && latest.node && Array.isArray(latest.node.messages)) {
+      if (latest && Array.isArray(latest.nodes)) {
         session = latest;
         renderCurrent();
         els.onSessionChange?.(session.id);
-        logger.info('gui', `已加载最近会话（${session.node.messages.length} 条消息）`);
+        logger.info('gui', `已加载最近会话（${session.nodes.length} 条消息）`);
       } else if (latest) {
         logger.warn('storage', '会话数据损坏，已重建');
         session = createSession();
@@ -239,8 +316,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     logger.info('gui', '当前会话已删除，已新建会话');
   });
 
-  /** 发送前置校验：返回可发送的文本（空串=不可发，原因已写入状态栏）。regenerate 截断前必须先过此关（P1-1：避免校验失败时数据已删） */
-  function validateSend(text: string): boolean {
+  /** 发送前置校验：返回可发送的部件（空数组=不可发，原因已写入状态栏）。regenerate 截断前必须先过此关（P1-1：避免校验失败时数据已删） */
+  function validateParts(parts: UIMessagePart[]): boolean {
     if (disposed || streaming || switchingSession) {
       // P2-8：切换会话进行中拒绝发送（避免写进旧会话）
       if (switchingSession) els.status.textContent = '正在切换会话...';
@@ -250,7 +327,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       els.status.textContent = '正在加载会话...';
       return false;
     }
-    if (!text.trim()) return false;
+    // 有文本（非空白）或图片部件即可发送（图片=纯图片消息）
+    const hasContent = parts.some((p) => p.type === 'image' || (p.type === 'text' && p.text.trim().length > 0));
+    if (!hasContent) return false;
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     if (!currentProfile.apiKey) {
       els.status.textContent = '请先在设置中填写 API Key';
@@ -275,15 +354,15 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     return true;
   }
 
-  /** 发送一段文本（send 读输入框，regenerate 复用历史文本）；clearInput 控制是否清空输入框 */
-  async function sendText(text: string, clearInput = true): Promise<void> {
-    if (!validateSend(text)) {
+  /** 发送一段部件（send 读输入框构造 text part，regenerate 复用历史消息 parts）；clearInput 控制是否清空输入框 */
+  async function sendText(parts: UIMessagePart[], clearInput = true): Promise<void> {
+    if (!validateParts(parts)) {
       // 若因超长被拦截（且未确认过），弹右上角确认；点确定置标记后重发
       const totalChars = countContextChars(session);
       if (totalChars > MAX_CONTEXT_CHARS && !lengthConfirmed) {
         els.onLengthWarn?.(totalChars, () => {
           lengthConfirmed = true;
-          void sendText(text, clearInput);
+          void sendText(parts, clearInput);
         });
       } else {
         // 失败原因不是超长（apiKey/服务商/加载态/切换中）：复位确认标记，
@@ -297,16 +376,22 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
     streaming = true;
     const token = ++streamToken;
+    // 校验已全部通过、开始流式：通知 GUI 清空待发送附件（失败路径不会到这里，附件保留可重发）
+    els.onSendAccepted?.();
+    // 本次请求 usage 累加（计费统计；claude 的 input/output 分两次回调，合并）
+    let reqInput = 0;
+    let reqOutput = 0;
     try {
-      logger.info('gui', `发送消息(${els.webSearch?.checked ? '联网' : '普通'}): ${text.slice(0, 60)}`);
-      appendMessage(session, 'user', [{ type: 'text', text }]);
-      els.messages.appendChild(els.renderMessage('user', [{ type: 'text', text }]));
+      const textPreview = parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join(' ').slice(0, 60);
+      logger.info('gui', `发送消息(${els.webSearch?.checked ? '联网' : '普通'}): ${textPreview}`);
+      appendMessage(session, 'user', parts); // 追加 user 节点（单候选）
+      els.messages.appendChild(els.renderMessage('user', parts));
       saveSessionSafe();
       if (clearInput) els.input.value = '';
       els.messages.scrollTop = els.messages.scrollHeight;
 
       const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
-      // 不提前 appendMessage('ai')：避免请求体末尾出现空 content 的 assistant 占位消息（L-1）
+      // 不提前 append AI 节点：避免请求体末尾出现空 content 的 assistant 占位消息（L-1）
       // 且空气泡不会落盘（N-8）。首个文本增量到达时才写入 session。
       let aiAppended = false;
       const aiBubble = els.renderMessage('ai', aiParts);
@@ -324,6 +409,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       // Agent 模式 + 工具管理：按 config.agent 组装 function 工具集（对话模式=不带工具；
       // 代理模式=过滤掉工具管理里显式停用的；web_search 独立走 request.tools，不受工具管理管）
       const agentCfg = (ctx.config.get('agent') ?? {}) as unknown as AgentConfig;
+      // 对话参数（v0.0.64）：温度/全局系统提示词/上下文轮数/思考强度，全部可空则省略（参考 RikkaHub TextGenerationParams 可空设计）
+      const chatCfg = (ctx.config.get('chat') ?? {}) as unknown as ChatConfig;
+      const effectiveSystemPrompt = (session.systemPrompt ?? '').trim() || (chatCfg.systemPrompt ?? '').trim();
 
       await runAgentLoop(
         {
@@ -333,8 +421,256 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             apiKey: currentProfile.apiKey,
             baseURL: currentProfile.baseURL,
             protocol: (currentProfile as { protocol?: 'responses' | 'chat' }).protocol ?? 'responses',
-            messages: toChatMessages(session.node),
+            messages: toChatMessages(session, chatCfg.maxRounds ?? 0),
             maxTokens: 4096,
+            temperature: chatCfg.temperature,
+            systemPrompt: effectiveSystemPrompt || undefined,
+            thinkLevel: chatCfg.thinkLevel,
+            tools: els.webSearch?.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
+          },
+          tools: buildAgentToolExecutor(ctx, agentCfg),
+          signal: abortCtrl.signal,
+        },
+        {
+          onTextDelta: (delta) => {
+            if (!aiAppended) {
+              appendMessage(session, 'ai', aiParts); // 追加 AI 节点（单候选）
+              aiAppended = true;
+            }
+            const part = aiParts[0];
+            if (part.type === 'text') part.text += delta;
+            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
+            els.messages.scrollTop = els.messages.scrollHeight;
+            els.status.textContent = '生成中...';
+          },
+          onReasoningDelta: () => {
+            els.status.textContent = '推理中...';
+          },
+          onToolCall: (call) => {
+            els.status.textContent = `调用工具: ${call.name}...`;
+            logger.info('tool', `调用工具 ${call.name}`);
+          },
+          onDone: () => {
+            els.status.textContent = '';
+          },
+          onError: (error) => {
+            // 首个文本增量前报错：移除空白气泡（未落盘、session 无记录），避免残留（P2-6）
+            if (!aiAppended) {
+              aiBubble.remove();
+            }
+            els.status.textContent = `错误: ${error.message}`;
+            logger.error('api', error.message);
+          },
+          onUsage: (u) => {
+            // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
+            if (u.inputTokens > 0) reqInput += u.inputTokens;
+            if (u.outputTokens > 0) reqOutput += u.outputTokens;
+          },
+        },
+      );
+    } catch (error) {
+      // 兜底：provider/工具异常直接冒泡时，走 onError 提示 + 落盘，避免 unhandled rejection 和状态栏卡死（RikkaHub errors 流思路）
+      els.status.textContent = `错误: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error('api', error instanceof Error ? error.message : String(error));
+    } finally {
+      // 只有自己还是最新流时才复位共享 UI 状态（旧流中止后新流已启动的场景，M1）
+      if (token === streamToken) {
+        streaming = false;
+        els.send.style.display = '';
+        els.stop.style.display = 'none';
+        abortCtrl = null;
+        // 流真正结束后才做收尾（Markdown 渲染等），避免增量期间被破坏
+        els.onStreamEnd?.();
+      }
+      // usage 统计（无论成功/失败/中止，收到过 usage 就累计）
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
+      // 无论成功/失败/中止，已生成的内容都要落盘（避免 UI 卡死/丢内容）
+      saveSessionSafe();
+    }
+  }
+
+  function send(): void {
+    const text = els.input.value;
+    void sendText([{ type: 'text', text }]);
+  }
+
+  function sendWithAttachments(attachments: UIMessagePart[]): void {
+    if (attachments.length === 0) {
+      send();
+      return;
+    }
+    const text = els.input.value.trim();
+    const parts: UIMessagePart[] = [...(text ? [{ type: 'text', text } as UIMessagePart] : []), ...attachments];
+    void sendText(parts);
+  }
+
+  function setConversationSystemPrompt(prompt: string): void {
+    session.systemPrompt = prompt.trim() || undefined;
+    saveSessionSafe();
+  }
+
+  function getConversationSystemPrompt(): string {
+    return session.systemPrompt ?? '';
+  }
+
+  function stop(): void {
+    if (!abortCtrl) return;
+    abortCtrl.abort();
+    // 令牌失效：旧流 finally 不再复位 UI（新流可能已启动）
+    streamToken++;
+    abortCtrl = null;
+    streaming = false;
+    els.status.textContent = '已中止';
+    els.send.style.display = '';
+    els.stop.style.display = 'none';
+    // P2-5：手动中止也算流结束，触发收尾（Markdown 渲染等），与 finally 分支行为一致
+    els.onStreamEnd?.();
+    saveSessionSafe();
+  }
+
+  function renameSession(title: string): void {
+    const t = title.trim();
+    if (!t || disposed) return;
+    session.title = t;
+    saveSessionSafe();
+    logger.info('gui', `会话标题已改为 "${t}"`);
+  }
+
+  /** 重新生成：截断到最后一条用户消息，用其内容重新发送（兼容旧调用；RikkaHub user 消息 regenerate = 截断重发） */
+  function regenerate(): void {
+    if (disposed || streaming) {
+      // P4：流式/卸载期间点重发给提示，避免静默失败
+      els.status.textContent = streaming ? '生成中，暂不能重发' : '';
+      return;
+    }
+    // 找到最后一条用户消息作为重发锚点
+    let idx = -1;
+    const msgs = currentMessages(session);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user') {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return;
+    const userMsg = msgs[idx];
+    // P1-2：历史消息含非文本 part（如图片）时不重发（避免 [图片] 降级为纯文本导致类型信息永久丢失）
+    if (userMsg.parts.some((p) => p.type !== 'text')) {
+      els.status.textContent = '该消息含图片等非文本内容，暂不支持重发';
+      return;
+    }
+    const userText = userMsg.parts
+      .map((p) => (p.type === 'text' ? p.text : ''))
+      .join('\n');
+    if (!userText.trim()) return;
+    // P1-1：截断前先过发送校验（apiKey/服务商/加载态），失败则不删数据
+    if (!validateParts(userMsg.parts)) return;
+    // 截断到最后一条用户消息（含）之前的全部节点，再由 sendText 重新追加同一条用户消息，
+    // 避免用户消息在会话里出现两次。首条 user 消息（anchor=0）时清空整链再重发（否则重复）
+    const found = findNodeByMessage(session, userMsg.id);
+    const anchor = found ? found.nodeIndex : idx;
+    if (anchor <= 0) {
+      session.nodes = [];
+    } else {
+      truncateAfter(session, anchor - 1);
+    }
+    saveSessionSafe();
+    renderCurrent();
+    void sendText(userMsg.parts, false);
+  }
+
+  /**
+   * 按消息 id 重新生成（RikkaHub regenerate 语义）：
+   *   - user 消息：截断该节点之后的全部节点，重新生成回复（user 消息本身保留）
+   *   - assistant 消息：该节点 push 新候选 + selectIndex 指向（旧候选保留），重新生成该条回复（共享链，后续节点不动）
+   */
+  function regenerateAt(messageId: string): void {
+    if (disposed || streaming) {
+      els.status.textContent = streaming ? '生成中，暂不能重发' : '';
+      return;
+    }
+    const found = findNodeByMessage(session, messageId);
+    if (!found) return;
+    const { node, nodeIndex } = found;
+    const idx = node.selectIndex >= 0 && node.selectIndex < node.messages.length ? node.selectIndex : 0;
+    const msg = node.messages[idx];
+    // 非文本内容（如图片）不重发
+    if (msg.parts.some((p) => p.type !== 'text')) {
+      els.status.textContent = '该消息含图片等非文本内容，暂不支持重发';
+      return;
+    }
+    if (msg.role === 'user') {
+      // user：截断该节点之后（含该节点后的所有节点），重新生成回复
+      truncateAfter(session, nodeIndex);
+      saveSessionSafe();
+      renderCurrent();
+      void sendReplyToUser(msg.id);
+    } else {
+      // assistant：push 新候选到该节点（共享链，后续节点不动），流式写回该候选
+      const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
+      const newMsg = createMessage('ai', aiParts);
+      pushCandidate(session, nodeIndex, newMsg);
+      saveSessionSafe();
+      renderCurrent();
+      void streamReplyAt(nodeIndex, aiParts);
+    }
+  }
+
+  /** 截断后以最后一条 user 消息为锚重新生成回复（append 新 AI 节点） */
+  async function sendReplyToUser(userMessageId: string): Promise<void> {
+    const found = findNodeByMessage(session, userMessageId);
+    if (!found || !validateParts([{ type: 'text', text: '' }])) {
+      // 用最后一条 user 消息内容补发（兼容 validateParts 对空文本的拦截）
+      const msgs = currentMessages(session);
+      const last = [...msgs].reverse().find((m) => m.role === 'user');
+      if (!last) return;
+      await sendText(last.parts, false);
+      return;
+    }
+    await streamReplyFrom(found.nodeIndex);
+  }
+
+  /** 从 nodeIndex 节点（其后的链已被截断）继续生成回复：append 新 AI 节点 */
+  async function streamReplyFrom(_anchorNodeIndex: number): Promise<void> {
+    await streamReply();
+  }
+
+  /** 发送纯回复流（不追加 user 消息）：append 新 AI 节点（对应 RikkaHub 截断后 handleMessageComplete 重生成） */
+  async function streamReply(): Promise<void> {
+    if (!validateParts([{ type: 'text', text: '' }])) return;
+    streaming = true;
+    const token = ++streamToken;
+    els.onSendAccepted?.();
+    let reqInput = 0;
+    let reqOutput = 0;
+    const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
+    let aiAppended = false;
+    const aiBubble = els.renderMessage('ai', aiParts);
+    els.messages.appendChild(aiBubble);
+    els.messages.scrollTop = els.messages.scrollHeight;
+    abortCtrl = new AbortController();
+    els.send.style.display = 'none';
+    els.stop.style.display = '';
+    els.status.textContent = '思考中...';
+    const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
+    const provider = ctx.providers.get(currentProfile.id)!;
+    const agentCfg = (ctx.config.get('agent') ?? {}) as unknown as AgentConfig;
+    const chatCfg = (ctx.config.get('chat') ?? {}) as unknown as ChatConfig;
+    const effectiveSystemPrompt = (session.systemPrompt ?? '').trim() || (chatCfg.systemPrompt ?? '').trim();
+    try {
+      await runAgentLoop(
+        {
+          provider,
+          request: {
+            model: currentProfile.model,
+            apiKey: currentProfile.apiKey,
+            baseURL: currentProfile.baseURL,
+            protocol: (currentProfile as { protocol?: 'responses' | 'chat' }).protocol ?? 'responses',
+            messages: toChatMessages(session, chatCfg.maxRounds ?? 0),
+            maxTokens: 4096,
+            temperature: chatCfg.temperature,
+            systemPrompt: effectiveSystemPrompt || undefined,
+            thinkLevel: chatCfg.thinkLevel,
             tools: els.webSearch?.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
           },
           tools: buildAgentToolExecutor(ctx, agentCfg),
@@ -363,95 +699,144 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.status.textContent = '';
           },
           onError: (error) => {
-            // 首个文本增量前报错：移除空白气泡（未落盘、session 无记录），避免残留（P2-6）
             if (!aiAppended) {
               aiBubble.remove();
             }
             els.status.textContent = `错误: ${error.message}`;
             logger.error('api', error.message);
           },
+          onUsage: (u) => {
+            // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
+            if (u.inputTokens > 0) reqInput += u.inputTokens;
+            if (u.outputTokens > 0) reqOutput += u.outputTokens;
+          },
         },
       );
     } catch (error) {
-      // 兜底：provider/工具异常直接冒泡时，走 onError 提示 + 落盘，避免 unhandled rejection 和状态栏卡死（RikkaHub errors 流思路）
       els.status.textContent = `错误: ${error instanceof Error ? error.message : String(error)}`;
       logger.error('api', error instanceof Error ? error.message : String(error));
     } finally {
-      // 只有自己还是最新流时才复位共享 UI 状态（旧流中止后新流已启动的场景，M1）
       if (token === streamToken) {
         streaming = false;
         els.send.style.display = '';
         els.stop.style.display = 'none';
         abortCtrl = null;
-        // 流真正结束后才做收尾（Markdown 渲染等），避免增量期间被破坏
         els.onStreamEnd?.();
       }
-      // 无论成功/失败/中止，已生成的内容都要落盘（避免 UI 卡死/丢内容）
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
       saveSessionSafe();
     }
   }
 
-  function send(): void {
-    void sendText(els.input.value);
-  }
-
-  function stop(): void {
-    if (!abortCtrl) return;
-    abortCtrl.abort();
-    // 令牌失效：旧流 finally 不再复位 UI（新流可能已启动）
-    streamToken++;
-    abortCtrl = null;
-    streaming = false;
-    els.status.textContent = '已中止';
-    els.send.style.display = '';
-    els.stop.style.display = 'none';
-    // P2-5：手动中止也算流结束，触发收尾（Markdown 渲染等），与 finally 分支行为一致
-    els.onStreamEnd?.();
-    saveSessionSafe();
-  }
-
-  function renameSession(title: string): void {
-    const t = title.trim();
-    if (!t || disposed) return;
-    session.title = t;
-    saveSessionSafe();
-    logger.info('gui', `会话标题已改为 "${t}"`);
-  }
-
-  function regenerate(): void {
-    if (disposed || streaming) {
-      // P4：流式/卸载期间点重发给提示，避免静默失败
-      els.status.textContent = streaming ? '生成中，暂不能重发' : '';
-      return;
-    }
-    // 找到最后一条用户消息作为重发锚点
-    let idx = -1;
-    for (let i = session.node.messages.length - 1; i >= 0; i--) {
-      if (session.node.messages[i].role === 'user') {
-        idx = i;
-        break;
+  /** assistant 候选重新生成：流式写回已 push 的候选节点（不追加新节点，RikkaHub updateCurrentMessages 按节点下标写回） */
+  async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[]): Promise<void> {
+    if (!validateParts([{ type: 'text', text: '' }])) return;
+    streaming = true;
+    const token = ++streamToken;
+    els.onSendAccepted?.();
+    let reqInput = 0;
+    let reqOutput = 0;
+    const aiBubble = els.renderMessage('ai', aiParts);
+    els.messages.appendChild(aiBubble);
+    els.messages.scrollTop = els.messages.scrollHeight;
+    abortCtrl = new AbortController();
+    els.send.style.display = 'none';
+    els.stop.style.display = '';
+    els.status.textContent = '思考中...';
+    const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
+    const provider = ctx.providers.get(currentProfile.id)!;
+    const agentCfg = (ctx.config.get('agent') ?? {}) as unknown as AgentConfig;
+    const chatCfg = (ctx.config.get('chat') ?? {}) as unknown as ChatConfig;
+    const effectiveSystemPrompt = (session.systemPrompt ?? '').trim() || (chatCfg.systemPrompt ?? '').trim();
+    try {
+      await runAgentLoop(
+        {
+          provider,
+          request: {
+            model: currentProfile.model,
+            apiKey: currentProfile.apiKey,
+            baseURL: currentProfile.baseURL,
+            protocol: (currentProfile as { protocol?: 'responses' | 'chat' }).protocol ?? 'responses',
+            messages: toChatMessages(session, chatCfg.maxRounds ?? 0),
+            maxTokens: 4096,
+            temperature: chatCfg.temperature,
+            systemPrompt: effectiveSystemPrompt || undefined,
+            thinkLevel: chatCfg.thinkLevel,
+            tools: els.webSearch?.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
+          },
+          tools: buildAgentToolExecutor(ctx, agentCfg),
+          signal: abortCtrl.signal,
+        },
+        {
+          onTextDelta: (delta) => {
+            const part = aiParts[0];
+            if (part.type === 'text') part.text += delta;
+            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
+            els.messages.scrollTop = els.messages.scrollHeight;
+            els.status.textContent = '生成中...';
+          },
+          onReasoningDelta: () => {
+            els.status.textContent = '推理中...';
+          },
+          onToolCall: (call) => {
+            els.status.textContent = `调用工具: ${call.name}...`;
+            logger.info('tool', `调用工具 ${call.name}`);
+          },
+          onDone: () => {
+            els.status.textContent = '';
+          },
+          onError: (error) => {
+            // 候选气泡流式期间失败：保留候选（用户可切回旧候选），仅提示
+            els.status.textContent = `错误: ${error.message}`;
+            logger.error('api', error.message);
+          },
+          onUsage: (u) => {
+            // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
+            if (u.inputTokens > 0) reqInput += u.inputTokens;
+            if (u.outputTokens > 0) reqOutput += u.outputTokens;
+          },
+        },
+      );
+    } catch (error) {
+      els.status.textContent = `错误: ${error instanceof Error ? error.message : String(error)}`;
+      logger.error('api', error instanceof Error ? error.message : String(error));
+    } finally {
+      if (token === streamToken) {
+        streaming = false;
+        els.send.style.display = '';
+        els.stop.style.display = 'none';
+        abortCtrl = null;
+        els.onStreamEnd?.();
       }
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
+      saveSessionSafe();
     }
-    if (idx < 0) return;
-    const userMsg = session.node.messages[idx];
-    // P1-2：历史消息含非文本 part（如图片）时不重发（避免 [图片] 降级为纯文本导致类型信息永久丢失）
-    if (userMsg.parts.some((p) => p.type !== 'text')) {
-      els.status.textContent = '该消息含图片等非文本内容，暂不支持重发';
-      return;
-    }
-    const userText = userMsg.parts
-      .map((p) => (p.type === 'text' ? p.text : ''))
-      .join('\n');
-    if (!userText.trim()) return;
-    // P1-1：截断前先过发送校验（apiKey/服务商/加载态），失败则不删数据
-    if (!validateSend(userText)) return;
-    // 截断到最后一条用户消息（含）之前的全部内容，再由 sendText 重新追加同一条用户消息，
-    // 避免用户消息在会话里出现两次
-    session.node.messages = session.node.messages.slice(0, idx);
-    session.node.selectIndex = Math.max(0, session.node.messages.length - 1);
+  }
+
+  /** 切换分支：只改目标节点 selectIndex，后续节点链不动（RikkaHub selectMessageNode 共享链语义） */
+  function selectCandidate(nodeId: string, selectIndex: number): void {
+    const ni = session.nodes.findIndex((n) => n.id === nodeId);
+    if (ni < 0) return;
+    setSelectIndex(session, ni, selectIndex);
     saveSessionSafe();
     renderCurrent();
-    void sendText(userText, false);
+  }
+
+  /** fork：从 messageId 处复制截断节点链成新会话（原会话不动），落盘并切换到新会话 */
+  function forkAt(messageId: string): void {
+    if (disposed || streaming) return;
+    try {
+      const forked = forkSessionAtMessage(session, messageId);
+      void ctx.storage.saveConversation(forked).then(() => {
+        ctx.emit('session-switch', forked.id);
+        els.onSessionChange?.(forked.id);
+        logger.info('gui', `已从消息 ${messageId} 分叉新会话 ${forked.id}`);
+      }).catch((error) => {
+        els.status.textContent = `分叉失败: ${error instanceof Error ? error.message : String(error)}`;
+      });
+    } catch (error) {
+      els.status.textContent = `分叉失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   function dispose(): void {
@@ -465,5 +850,21 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     saveSessionSafe();
   }
 
-  return { send: () => void send(), stop, switchSession, getSessionId: () => session.id, renameSession, regenerate, dispose };
+  return {
+    send: () => void send(),
+    sendWithAttachments,
+    setConversationSystemPrompt,
+    getConversationSystemPrompt,
+    stop,
+    switchSession,
+    getSessionId: () => session.id,
+    renameSession,
+    regenerate,
+    regenerateAt,
+    selectCandidate,
+    forkAt,
+    getBranchSnapshot,
+    getStats,
+    dispose,
+  };
 }

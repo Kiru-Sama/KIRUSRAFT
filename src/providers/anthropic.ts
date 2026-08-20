@@ -22,12 +22,38 @@ function parseSseEvent(line: string): { event: string; data: unknown } | null {
   return null;
 }
 
-/** 构造 messages（user/assistant，Anthropic 格式） */
-function buildMessages(request: ChatRequest): { role: string; content: string }[] {
+/** 构造 messages（user/assistant，Anthropic 格式）。
+ *  content 字符串→纯文本；部件数组→text→{type:text}、image→{type:image, source:{type:base64, media_type, data}}
+ *  （裸 base64 无 data: 前缀，参考 RikkaHub ClaudeProvider 731-744 行） */
+function buildMessages(request: ChatRequest): { role: string; content: unknown }[] {
   return (request.messages ?? []).map((m) => ({
     role: m.role === 'ai' ? 'assistant' : 'user',
-    content: m.content,
+    content: Array.isArray(m.content)
+      ? m.content.map((p) =>
+          p.type === 'text'
+            ? { type: 'text', text: p.text }
+            : { type: 'image', source: imageSourceFromDataUrl(p.imageUrl) },
+        )
+      : m.content,
   }));
+}
+
+/** dataURL（data:image/jpeg;base64,...）→ Anthropic image source（media_type + 裸 base64） */
+function imageSourceFromDataUrl(dataUrl: string): { type: string; media_type: string; data: string } {
+  const match = /^data:([^;,]+);base64,(.+)$/s.exec(dataUrl);
+  if (match) return { type: 'base64', media_type: match[1] || 'image/png', data: match[2] };
+  // 非 dataURL（http URL）：无法本地转 base64，退化为空占位（服务端会拒绝，日志可见）
+  return { type: 'base64', media_type: 'image/png', data: '' };
+}
+
+/** 思考强度档位 → Anthropic thinking（RikkaHub ClaudeProvider 471-497 思路，但用兼容性更好的 enabled+budget_tokens 旧协议：
+ *  0=OFF→显式 disabled；1=AUTO→不写（模型默认）；2~5→enabled + budget（Anthropic 官方下限 1024：
+ *  LOW=1024 MEDIUM=2048 HIGH=8192 MAX=32768）） */
+function thinkToThinking(level: number | undefined): Record<string, unknown> | undefined {
+  if (level === undefined || level === 1) return undefined;
+  if (level === 0) return { type: 'disabled' };
+  const budgets: Record<number, number> = { 2: 1024, 3: 2048, 4: 8192, 5: 32768 };
+  return { type: 'enabled', budget_tokens: budgets[level] ?? 2048 };
 }
 
 /** 发起流式聊天 */
@@ -53,6 +79,15 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
     stream: true,
     max_tokens: request.maxTokens ?? 4096,
   };
+  // systemPrompt → 顶层 system 数组（Anthropic 惯例；RikkaHub ClaudeProvider 455-469）
+  const system = request.systemPrompt?.trim();
+  if (system) body.system = [{ type: 'text', text: system }];
+  // 思考强度：thinking 参数（0=显式 disabled；2~5=enabled+budget；1=不写）。
+  // Claude 规则：thinking 开启时禁止同时写 temperature（RikkaHub ClaudeProvider 446 行）
+  const thinking = thinkToThinking(request.thinkLevel);
+  if (thinking) body.thinking = thinking;
+  const thinkingEnabled = (thinking as { type?: string } | undefined)?.type === 'enabled';
+  if (request.temperature !== undefined && !thinkingEnabled) body.temperature = request.temperature;
   if (request.tools && request.tools.length > 0) {
     body.tools = request.tools.map((t) => ({
       name: t.name,
@@ -167,6 +202,25 @@ function dispatch(
   const record = data as Record<string, unknown>;
   const type = record.type as string;
   switch (type) {
+    case 'message_start': {
+      // usage 统计（v0.0.65 计费）：message_start 带 input_tokens
+      const msg = record.message as Record<string, unknown> | undefined;
+      const u = msg?.usage as Record<string, unknown> | undefined;
+      if (u) {
+        const input = Number(u.input_tokens ?? 0);
+        handlers.onUsage?.({ inputTokens: input, outputTokens: 0, totalTokens: input });
+      }
+      break;
+    }
+    case 'message_delta': {
+      // usage 统计：message_delta 带 output_tokens（流结束前最后一条）
+      const u = record.usage as Record<string, unknown> | undefined;
+      if (u) {
+        const output = Number(u.output_tokens ?? 0);
+        handlers.onUsage?.({ inputTokens: 0, outputTokens: output, totalTokens: output });
+      }
+      break;
+    }
     case 'content_block_delta': {
       const delta = record.delta as Record<string, unknown> | undefined;
       if (!delta) break;

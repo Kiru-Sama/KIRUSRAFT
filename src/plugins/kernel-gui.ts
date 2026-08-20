@@ -689,8 +689,8 @@ export function apply(ctx: Context): void {
       } else {
         container.innerHTML = sessions
           .map((s) => {
-            const valid = !!s.node && Array.isArray(s.node.messages);
-            const count = valid ? s.node.messages.length : 0;
+            const valid = Array.isArray(s.nodes);
+            const count = valid ? s.nodes.length : 0;
             const badge = valid ? '' : ' <span class="kg-badge err">损坏</span>';
             return `
             <div class="kg-session">

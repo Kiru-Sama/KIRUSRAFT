@@ -26,7 +26,13 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
     ? [...options.request.input]
     : (options.request.messages ?? []).map((m) => ({
         role: m.role,
-        content: [{ type: 'input_text', text: m.content }],
+        content: Array.isArray(m.content)
+          ? m.content.map((p): Record<string, unknown> =>
+              p.type === 'text'
+                ? { type: 'input_text', text: p.text }
+                : { type: 'input_image', image_url: p.imageUrl },
+            )
+          : [{ type: 'input_text', text: m.content }],
       }));
 
   // 工具声明：已注册的 function 工具 + 可选服务端 web_search

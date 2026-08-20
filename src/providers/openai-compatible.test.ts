@@ -93,4 +93,151 @@ describe('openai-compatible SSE 解析', () => {
     await streamChat(baseRequest, h);
     expect(h.onToolCall).not.toHaveBeenCalled();
   });
+
+  // ===== v0.0.64：温度 / 思考强度 / 系统提示词 / 多模态 body 映射 =====
+
+  /** 捕获 fetch 请求 body 的变体 */
+  function mockFetchCapture(callback: (body: Record<string, unknown>) => void) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        callback(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+            controller.close();
+          },
+        });
+        return { ok: true, status: 200, body: stream } as Response;
+      }),
+    );
+  }
+
+  it('temperature 与思考强度档位写入 body（可空则省略）', async () => {
+    let body: Record<string, unknown> = {};
+    mockFetchCapture((b) => {
+      body = b;
+    });
+    const h = makeHandlers();
+    await streamChat(
+      { ...baseRequest, temperature: 0.7, thinkLevel: 3 },
+      h,
+    );
+    expect(body.temperature).toBe(0.7);
+    expect(body.reasoning_effort).toBe('medium');
+    // 不传时省略（服务商默认）
+    await streamChat(baseRequest, makeHandlers());
+    // 第二次调用 body 被覆盖为不含参数的版本
+    expect(body.temperature).toBeUndefined();
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it('思考强度档位映射：2=low 4/5=high 0/1 不写', async () => {
+    const levels: Record<string, unknown> = {};
+    for (const level of [0, 1, 2, 4, 5]) {
+      let body: Record<string, unknown> = {};
+      mockFetchCapture((b) => {
+        body = b;
+      });
+      await streamChat({ ...baseRequest, thinkLevel: level }, makeHandlers());
+      levels[String(level)] = body.reasoning_effort;
+    }
+    expect(levels['0']).toBeUndefined();
+    expect(levels['1']).toBeUndefined();
+    expect(levels['2']).toBe('low');
+    expect(levels['4']).toBe('high');
+    expect(levels['5']).toBe('high');
+  });
+
+  it('systemPrompt 前置为 system 消息（含图片时仍只前置文本）', async () => {
+    let body: Record<string, unknown> = {};
+    mockFetchCapture((b) => {
+      body = b;
+    });
+    await streamChat({ ...baseRequest, systemPrompt: '你是助手' }, makeHandlers());
+    const msgs = body.messages as { role: string; content: string }[];
+    expect(msgs[0]).toEqual({ role: 'system', content: '你是助手' });
+    expect(msgs[1]).toEqual({ role: 'user', content: 'hi' });
+  });
+
+  it('图片部件映射为 image_url content 数组（data URL 透传）', async () => {
+    let body: Record<string, unknown> = {};
+    mockFetchCapture((b) => {
+      body = b;
+    });
+    await streamChat(
+      {
+        ...baseRequest,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '看图' },
+              { type: 'image', imageUrl: 'data:image/jpeg;base64,AAA=' },
+            ],
+          },
+        ],
+      },
+      makeHandlers(),
+    );
+    const msgs = body.messages as { role: string; content: unknown }[];
+    expect(msgs[0].content).toEqual([
+      { type: 'text', text: '看图' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAA=' } },
+    ]);
+  });
+
+  it('工具循环 input 分支的 input_image 也映射为 image_url（防 [object Object] 回归）', async () => {
+    let body: Record<string, unknown> = {};
+    mockFetchCapture((b) => {
+      body = b;
+    });
+    await streamChat(
+      {
+        ...baseRequest,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: '看图' },
+              { type: 'input_image', image_url: 'data:image/png;base64,CCC=' },
+            ],
+          },
+          { type: 'function_call', call_id: 'c1', name: 'get_time', arguments: '{}' },
+        ],
+      },
+      makeHandlers(),
+    );
+    const msgs = body.messages as { role: string; content: unknown }[];
+    // 工具循环第二轮回传：图片保持 image_url 而非 "[object Object]"
+    expect(msgs[0].content).toEqual([
+      { type: 'text', text: '看图' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,CCC=' } },
+    ]);
+    // function_call 项照旧转 tool_calls
+    expect(msgs[1]).toMatchObject({ role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'get_time' } }] });
+  });
+
+  // ===== v0.0.65：usage 统计 =====
+  it('usage chunk（choices 空 + usage）触发 onUsage', async () => {
+    mockFetchWithEvents([
+      'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    const h = makeHandlers();
+    const usageSpy = vi.fn();
+    await streamChat(baseRequest, { ...h, onUsage: usageSpy });
+    expect(usageSpy).toHaveBeenCalledTimes(1);
+    expect(usageSpy.mock.calls[0][0]).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+  });
+
+  it('请求体带 stream_options.include_usage（计费统计需要）', async () => {
+    let body: Record<string, unknown> = {};
+    mockFetchCapture((b) => {
+      body = b;
+    });
+    await streamChat(baseRequest, makeHandlers());
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
 });

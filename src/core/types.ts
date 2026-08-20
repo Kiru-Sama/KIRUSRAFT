@@ -29,14 +29,16 @@ export interface Message {
   createdAt: number;
 }
 
-/** 消息节点（RikkaHub MessageNodeEntity 对齐版）：会话内节点，多候选消息 + 选中索引表达分支 */
+/** 消息节点（RikkaHub MessageNode 对齐版）：会话内一个"位置"，可含多个候选消息（regen/编辑产生），selectIndex 选中当前展示哪个 */
 export interface MessageNode {
   id: string;
   /** 所属会话 id（外键关联，参考 RikkaHub message_node.conversation_id） */
   conversationId: string;
-  /** 节点在会话内的排序位置（0 起，参考 node_index） */
+  /** 节点在会话链内的排序位置（0 起，参考 node_index；可由数组下标推导，持久化更稳） */
   nodeIndex: number;
+  /** 该位置的候选消息列表（通常 1 个；regenerate/编辑后 push 新候选，旧候选保留可切回） */
   messages: Message[];
+  /** 当前选中的候选下标（切换分支只改这里，后续节点链不动 = 共享链语义） */
   selectIndex: number;
 }
 
@@ -54,13 +56,25 @@ export interface Tool {
   execute(args: Record<string, unknown>): Promise<UIMessagePart[]>;
 }
 
-/** 会话（简化：单节点起步，分叉后续扩展） */
+/** 会话（RikkaHub 消息树对齐版）：有序节点链 + 每节点内多候选；systemPrompt 为当前对话级系统提示词（覆盖全局，留空=用全局） */
 export interface Session {
   id: string;
   title: string;
-  node: MessageNode;
+  /** 节点链（每条消息一个节点；节点内多候选表达分支） */
+  nodes: MessageNode[];
   createdAt: number;
+  systemPrompt?: string;
+  /** 用量统计（v0.0.65：计费卡数据源；可选，旧数据无此字段） */
+  stats?: SessionStats;
 }
+
+/** 消息内容部件（provider 层）：文本或图片（图片为 dataURL 或 URL，参考 RikkaHub UIMessagePart.Image 三态 url） */
+export type ChatMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; imageUrl: string; alt?: string };
+
+/** provider 消息：纯文本保持字符串（兼容旧链路），含图片时用部件数组（各 provider 再映射成自己的格式） */
+export type ChatMessageContent = string | ChatMessagePart[];
 
 /** 聊天请求（DeepSeek Responses 适配层） */
 export interface ChatRequest {
@@ -69,11 +83,19 @@ export interface ChatRequest {
   baseURL: string;
   /** 协议选择：responses（OpenAI Responses API）或 chat（chat/completions，默认） */
   protocol?: 'responses' | 'chat';
-  messages?: { role: string; content: string }[];
+  messages?: { role: string; content: ChatMessageContent }[];
   /** Responses API 完整 input（工具循环回传 function_call/function_call_output 用） */
   input?: Record<string, unknown>[];
   tools?: { type: string; name?: string; parameters?: unknown; max_uses?: number }[];
   maxTokens?: number;
+  /** 采样温度（0~2；不传=服务商默认） */
+  temperature?: number;
+  /** 系统提示词（全局或会话级，各 provider 映射到自己的 system 位置） */
+  systemPrompt?: string;
+  /** 上下文轮数限制（0=不限；1 轮=1 条用户消息+其后所有回复），发送前按轮截断历史 */
+  maxRounds?: number;
+  /** 思考强度档位（0=不思考 1=自动 2=低 3=中 4=高 5=最大），各 provider 映射到自己的 reasoning 参数 */
+  thinkLevel?: number;
 }
 
 /** 流式聊天回调 */
@@ -83,6 +105,18 @@ export interface ChatStreamHandlers {
   onToolCall(call: { id: string; name: string; args: Record<string, unknown>; rawArguments?: string }): void;
   onDone(): void;
   onError(error: Error): void;
+  /** 可选：流结束收到 usage（token 统计；chat/completions 需 stream_options.include_usage，responses 在 completed 事件，claude 在 message_start/message_delta） */
+  onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number }): void;
+}
+
+/** 会话级用量统计（v0.0.65：计费卡数据源，随会话落盘） */
+export interface SessionStats {
+  requestCount: number;
+  totalTokens: number;
+  lastInputTokens: number;
+  lastOutputTokens: number;
+  /** 本场估算费用（美元，按 chat 分节单价折算；无单价时 0） */
+  totalCost: number;
 }
 
 /** 服务商 profile（可插件化扩展） */
