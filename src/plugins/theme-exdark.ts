@@ -90,6 +90,18 @@ const STYLE = `
 /* 侧边栏底部设置入口（参考 rikka 列表底部设置）：右下角固定 */
 .ex-sidebar-settings { margin:auto 10px 10px; padding:10px; background:var(--ex-surface2); color:var(--ex-text2); border:1px solid var(--ex-border2); font-weight:900; text-transform:uppercase; letter-spacing:1px; cursor:pointer; font-family:var(--ex-font); font-size:11px; transition:all .2s; }
 .ex-sidebar-settings:hover { background:var(--ex-border2); color:var(--ex-bg); }
+/* ---- 侧边栏对话管理模式（v0.0.65：批量管理工具条 + 卡片 checkbox/×） ---- */
+.ex-manage-bar { display:flex; gap:6px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--ex-border); background:var(--ex-surface); flex-wrap:wrap; }
+.ex-manage-btn { background:var(--ex-surface2); border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:4px 8px; cursor:pointer; font-family:var(--ex-font); font-weight:bold; }
+.ex-manage-btn:hover { background:var(--ex-accent); color:var(--ex-bg); }
+.ex-manage-btn.ex-manage-exit { border-color:var(--ex-danger); color:var(--ex-danger); }
+.ex-manage-btn.ex-manage-exit:hover { background:var(--ex-danger); color:#fff; }
+.ex-manage-count { font-size:10px; color:var(--ex-text3); margin-left:auto; }
+.ex-conv-check { display:flex; align-items:center; flex-shrink:0; }
+.ex-conv-check input { width:15px; height:15px; accent-color:var(--ex-accent); cursor:pointer; }
+.ex-conv-del { background:none; border:none; color:var(--ex-danger); font-size:16px; line-height:1; padding:2px 6px; cursor:pointer; flex-shrink:0; font-family:var(--ex-font); }
+.ex-conv-del:hover { color:#fff; background:var(--ex-danger); }
+.ex-conv-item.manage-selected { border-color:var(--ex-border2); background:var(--ex-surface2); }
 /* 会话长按二级菜单（浮层：置顶/分享/管理/删除/重新生成标题） */
 .ex-conv-menu { display:none; position:fixed; z-index:4000; min-width:150px; background:var(--ex-surface2); border:1px solid var(--ex-border); box-shadow:0 8px 32px rgba(0,0,0,.5); padding:4px 0; }
 .ex-conv-menu.show { display:block; }
@@ -600,6 +612,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         </div>
         <div class="ex-sidebar-actions">
           <button class="ex-btn-new" data-ex="newchat">+ 新对话</button>
+        </div>
+        <!-- 对话管理模式工具条（v0.0.65 修正：长按"管理"进入边栏就地批量管理，不弹内核设置） -->
+        <div class="ex-manage-bar" data-ex="manage-bar" style="display:none;">
+          <button type="button" class="ex-manage-btn" data-ex="manage-select-all">全选</button>
+          <button type="button" class="ex-manage-btn" data-ex="manage-delete">删除选中</button>
+          <button type="button" class="ex-manage-btn ex-manage-exit" data-ex="manage-exit">退出</button>
+          <span class="ex-manage-count" data-ex="manage-count"></span>
         </div>
         <div class="ex-sidebar-search">
           <input data-ex="convsearch" type="text" placeholder="搜索会话…" />
@@ -1652,6 +1671,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
 
   // ---- 会话列表（搜索过滤 + 置顶排序 + 时间分组 + 空态引导） ----
   let searchQuery = '';
+  // 对话管理模式（v0.0.65 修正：长按"管理"进入边栏就地批量管理）
+  let manageMode = false;
+  let manageSelected = new Set<string>();
   async function renderSessionList(activeId: string): Promise<void> {
     let sessions;
     try {
@@ -1708,12 +1730,58 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       item.dataset.exSwitch = s.id;
       const count = Array.isArray(s.nodes) ? s.nodes.length : 0;
       const time = new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric' });
-      // 平铺：无 hover 按钮（▲/× 已删），长按弹二级菜单（置顶/分享/管理/删除/重新生成标题）
-      item.innerHTML = `
-        <div class="ex-conv-title">${esc(s.title || '新对话')}</div>
-        <div class="ex-conv-info"><span>${count} 条</span><span>${esc(time)}</span></div>
-      `;
+      if (manageMode) {
+        // 管理模式：左侧 checkbox + 标题/信息 + 右侧 × 单删；整卡不切换会话
+        const checked = manageSelected.has(s.id);
+        if (checked) item.classList.add('manage-selected');
+        const body = document.createElement('div');
+        body.style.cssText = 'min-width:0;flex:1;';
+        body.innerHTML = `
+          <div class="ex-conv-title">${esc(s.title || '新对话')}</div>
+          <div class="ex-conv-info"><span>${count} 条</span><span>${esc(time)}</span></div>
+        `;
+        const check = document.createElement('label');
+        check.className = 'ex-conv-check';
+        check.title = '选择';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = checked;
+        cb.dataset.exManageCheck = s.id;
+        check.appendChild(cb);
+        const del = document.createElement('button');
+        del.className = 'ex-conv-del';
+        del.textContent = '×';
+        del.title = '删除该会话';
+        del.dataset.exManageDel = s.id;
+        item.append(check, body, del);
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.gap = '8px';
+      } else {
+        // 平铺：无 hover 按钮（▲/× 已删），长按弹二级菜单（置顶/分享/管理/删除/重新生成标题）
+        item.innerHTML = `
+          <div class="ex-conv-title">${esc(s.title || '新对话')}</div>
+          <div class="ex-conv-info"><span>${count} 条</span><span>${esc(time)}</span></div>
+        `;
+      }
       convList.appendChild(item);
+    }
+  }
+
+  /** 更新管理模式工具条（选中计数 + 全选按钮状态） */
+  function updateManageBar(): void {
+    const bar = container.querySelector('[data-ex="manage-bar"]') as HTMLElement | null;
+    const countEl = container.querySelector('[data-ex="manage-count"]') as HTMLElement | null;
+    const selectAllBtn = container.querySelector('[data-ex="manage-select-all"]') as HTMLElement | null;
+    if (!bar) return;
+    bar.style.display = manageMode ? 'flex' : 'none';
+    if (!manageMode) return;
+    if (countEl) countEl.textContent = manageSelected.size > 0 ? `已选 ${manageSelected.size}` : '';
+    if (selectAllBtn) {
+      // 全选态判断：列表里可见会话是否全被选中（简化：按钮文本随状态切换）
+      const total = convList.querySelectorAll('[data-ex-switch]').length;
+      const allChecked = total > 0 && manageSelected.size >= total;
+      selectAllBtn.textContent = allChecked ? '取消全选' : '全选';
     }
   }
 
@@ -2233,8 +2301,39 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     });
 
     // 会话列表：点击切换 + 长按二级菜单（置顶/分享/管理/删除/重新生成标题）
+    // 管理态：checkbox 选择 / × 单删优先；非管理态：点击切换会话
     convList.addEventListener('click', (e) => {
-      const item = (e.target as HTMLElement).closest('[data-ex-switch]') as HTMLElement | null;
+      const target = e.target as HTMLElement;
+      // 管理态 × 单删
+      const delBtn = target.closest('[data-ex-manage-del]') as HTMLElement | null;
+      if (delBtn?.dataset.exManageDel) {
+        e.stopPropagation();
+        const id = delBtn.dataset.exManageDel;
+        if (window.confirm('确定删除该会话？')) {
+          void ctx.storage.deleteConversation(id).then(() => {
+            manageSelected.delete(id);
+            ctx.emit('session-deleted', id);
+            void renderSessionList(controller.getSessionId());
+            void updateTopbarTitle(controller.getSessionId());
+            updateManageBar();
+          });
+        }
+        return;
+      }
+      // 管理态 checkbox 选择
+      const cb = target.closest('[data-ex-manage-check]') as HTMLInputElement | null;
+      if (cb?.dataset.exManageCheck) {
+        e.stopPropagation();
+        const id = cb.dataset.exManageCheck;
+        if (cb.checked) manageSelected.add(id);
+        else manageSelected.delete(id);
+        const card = cb.closest('[data-ex-switch]');
+        card?.classList.toggle('manage-selected', cb.checked);
+        updateManageBar();
+        return;
+      }
+      if (manageMode) return; // 管理态点击卡片不切换会话
+      const item = (target).closest('[data-ex-switch]') as HTMLElement | null;
       if (item && item.dataset.exSwitch) {
         ctx.emit('session-switch', item.dataset.exSwitch);
         void renderSessionList(controller.getSessionId());
@@ -2259,6 +2358,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     convList.addEventListener('pointerdown', (e) => {
       const item = (e.target as HTMLElement).closest('[data-ex-switch]') as HTMLElement | null;
       if (!item?.dataset.exSwitch) return;
+      if (manageMode) return; // 管理模式禁长按菜单（防干扰 checkbox/×）
       // 不 preventDefault（会阻止 click 导致会话点不动）；防文本选择靠 CSS user-select:none
       pressTarget = item;
       menuShown = false;
@@ -2341,8 +2441,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           }
         });
       } else if (action === 'manage') {
-        // 管理（v0.0.65）：打开管理中心聊天记录页（已有切换/删除/新建会话能力）
-        ctx.emit('kernel-gui:open', '聊天记录');
+        // 管理（v0.0.65 修正）：进入侧边栏就地管理模式（卡片 checkbox 批量 + × 单删），不再弹内核设置
+        manageMode = true;
+        manageSelected.clear();
+        sidebar.classList.add('open'); // 打开侧边栏（移动端抽屉）
+        updateManageBar();
+        void renderSessionList(controller.getSessionId());
+        showToast('管理模式：勾选会话可批量删除');
       } else if (action === 'delete') {
         if (window.confirm('确定删除该会话？')) {
           void ctx.storage.deleteConversation(id).then(() => {
@@ -2382,6 +2487,54 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     container.addEventListener('click', (e) => {
       if (convMenu && !convMenu.contains(e.target as Node)) closeConvMenu();
     });
+
+    // 对话管理模式工具条（v0.0.65 修正：全选/删除选中/退出）
+    const manageBar = container.querySelector('[data-ex="manage-bar"]') as HTMLElement | null;
+    const manageSelectAllBtn = container.querySelector('[data-ex="manage-select-all"]') as HTMLElement | null;
+    const manageDeleteBtn = container.querySelector('[data-ex="manage-delete"]') as HTMLElement | null;
+    const manageExitBtn = container.querySelector('[data-ex="manage-exit"]') as HTMLElement | null;
+    manageSelectAllBtn?.addEventListener('click', () => {
+      // 全选 / 取消全选：切换当前可见会话的选中态
+      const allIds = [...convList.querySelectorAll<HTMLElement>('[data-ex-switch]')]
+        .map((el) => el.dataset.exSwitch)
+        .filter((x): x is string => !!x);
+      const allChecked = allIds.length > 0 && allIds.every((id) => manageSelected.has(id));
+      if (allChecked) allIds.forEach((id) => manageSelected.delete(id));
+      else allIds.forEach((id) => manageSelected.add(id));
+      void renderSessionList(controller.getSessionId());
+      updateManageBar();
+    });
+    manageDeleteBtn?.addEventListener('click', () => {
+      const ids = [...manageSelected];
+      if (ids.length === 0) {
+        showToast('未选择会话');
+        return;
+      }
+      if (!window.confirm(`确定删除选中的 ${ids.length} 个会话？此操作不可恢复。`)) return;
+      void (async () => {
+        for (const id of ids) {
+          try {
+            await ctx.storage.deleteConversation(id);
+          } catch (error) {
+            logger.error('storage', `批量删除失败 ${id}: ${String(error)}`);
+          }
+        }
+        manageSelected.clear();
+        ctx.emit('session-deleted', controller.getSessionId()); // 若删了当前会话，重建
+        void renderSessionList(controller.getSessionId());
+        void updateTopbarTitle(controller.getSessionId());
+        updateManageBar();
+        showToast(`已删除 ${ids.length} 个会话`);
+      })();
+    });
+    manageExitBtn?.addEventListener('click', () => {
+      manageMode = false;
+      manageSelected.clear();
+      updateManageBar();
+      void renderSessionList(controller.getSessionId());
+    });
+    // 初始化：工具条默认隐藏
+    updateManageBar();
 
     // 插件管理入口：在设置弹窗左侧导航（唯一入口，不放在更多菜单）
     // 侧边栏底部：设置入口（参考 rikka 列表底部）
