@@ -1,4 +1,4 @@
-/**
+﻿/**
  * kernel-gui 插件（v0.0.20 · Exdark 设计语言重构版）
  * 管理中心（人话设置页）：全屏深色面板，Exdark 设计语言统一。
  *  - 独立插件不在 .kr-exdark 作用域内，面板根元素自定同名 --ex-* 变量（复制 Exdark 色值，见 STYLE）。
@@ -25,7 +25,7 @@ export const manifest: PluginManifest = {
   label: { zh: '管理中心', en: 'Kernel GUI' },
   group: '界面',
   inject,
-  protected: true,
+  protected: false,
   description: '全屏管理中心：首页/功能开关/AI 连接/外观/聊天记录/运行记录',
   apply,
 };
@@ -489,9 +489,12 @@ export function apply(ctx: Context): void {
       });
     });
 
-    // 关闭
+    // 关闭（H4：关闭后按 GUI 仲裁恢复应急台显示——若无主题 GUI 则显示，有则保持隐藏）
     panel.querySelector('[data-kclose]')?.addEventListener('click', () => {
       panel.style.display = 'none';
+      void ctx.topology.ensureGuiIfNeeded().then((r) => {
+        if (!r.ok && r.message) logger.error('topology', r.message);
+      });
     });
 
     // 清空日志
@@ -729,6 +732,8 @@ export function apply(ctx: Context): void {
 
   function openPanel(tab?: string): void {
     panel.style.display = 'flex';
+    // H4：管理面板打开时隐藏应急台（防 z-index 盖住/叠层；管理面板是 overlay，可覆盖在主题之上）
+    ctx.emit('fallback:hide');
     // 瞬态 UI 状态：打开时重置展开/滚动，避免关闭再打开残留旧状态
     activeTab = TABS.includes(tab as Tab) ? (tab as Tab) : '首页';
     expanded = new Set();

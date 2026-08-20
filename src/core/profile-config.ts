@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 服务商配置分节（v0.0.37 极简版）
  * 参考 RikkaHub/Reasonix/dsh 的交互范式重写：
  *   选服务商卡片（点选即预填 baseURL/模型）→ 只填 API Key → 模型自动检测（/models）+ 预设兜底。
@@ -31,12 +31,17 @@ export function registerProfileConfig(ctx: Context): void {
         const esc = (s: string): string =>
           s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-        // ===== 1. 服务商卡片网格（点选即预填，当前高亮） =====
-        const pickLabel = document.createElement('div');
-        pickLabel.className = 'ks-label';
-        pickLabel.textContent = '选择服务商（点选自动预填，可后改）';
-        container.appendChild(pickLabel);
+        // ===== 1. 服务商预设（默认折叠：details 收起，当前选中高亮；点开网格选服务商） =====
+        const pickDetails = document.createElement('details');
+        pickDetails.style.cssText = 'margin-bottom:8px;';
+        const pickSummary = document.createElement('summary');
+        pickSummary.style.cssText =
+          'font-size:12px;color:var(--ex-accent,#4f6ef7);font-weight:bold;cursor:pointer;padding:6px 0;font-family:inherit;user-select:none;';
+        pickSummary.textContent = `选择服务商预设（当前：${preset?.name ?? curId}） ▾`;
+        pickDetails.appendChild(pickSummary);
 
+        const pickBody = document.createElement('div');
+        pickBody.style.cssText = 'padding:4px 0 8px;';
         const groups: { label: string; presets: ProviderPreset[] }[] = [
           { label: '官方服务商', presets: PROVIDER_PRESETS.filter((p) => p.group === 'official') },
           { label: '聚合 / 中转', presets: PROVIDER_PRESETS.filter((p) => p.group === 'relay') },
@@ -45,9 +50,11 @@ export function registerProfileConfig(ctx: Context): void {
           const gTitle = document.createElement('div');
           gTitle.textContent = g.label;
           gTitle.style.cssText = 'font-size:11px;color:var(--ex-text3,#8a90a0);margin:10px 0 6px;font-weight:bold;letter-spacing:1px;';
-          container.appendChild(gTitle);
+          pickBody.appendChild(gTitle);
           const grid = document.createElement('div');
-          grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:4px;';
+          // 用 .ex-preset-grid 类（媒体查询可折叠单列）；内联 style 只补间距，不写 grid-template（避免覆盖媒体查询）
+          grid.className = 'ex-preset-grid';
+          grid.style.cssText = 'gap:8px;margin-bottom:4px;';
           for (const p of g.presets) {
             const card = document.createElement('button');
             card.type = 'button';
@@ -65,38 +72,44 @@ export function registerProfileConfig(ctx: Context): void {
             });
             grid.appendChild(card);
           }
-          container.appendChild(grid);
+          pickBody.appendChild(grid);
         }
+        pickDetails.appendChild(pickBody);
+        container.appendChild(pickDetails);
 
         // ===== 2. API Key（唯一必填）+ 购买链接 =====
-        const keyLabel = document.createElement('label');
+        // ===== 2. API Key（唯一必填）+ 购买链接 =====
+        // 结构与模型行一致：label 单独一行（.ks-label）+ 下面 [输入框][隐藏] 一行 stretch 等高
+        const keyLabel = document.createElement('div');
         keyLabel.className = 'ks-label';
         keyLabel.textContent = 'API 密钥（必填）';
         container.appendChild(keyLabel);
-        const keyWrap = document.createElement('div');
-        keyWrap.style.cssText = 'display:flex;gap:8px;align-items:stretch;';
+        const keyRow = document.createElement('div');
+        keyRow.style.cssText = 'display:flex;gap:8px;align-items:stretch;';
         const keyInput = document.createElement('input');
         keyInput.className = 'ks-input';
-        keyInput.type = 'password';
+        // 普通键盘即可（用户明确：无需安全键盘）；密钥本身在本地，不强制掩码
+        keyInput.type = 'text';
         keyInput.value = String(cur.apiKey ?? '');
         keyInput.placeholder = 'sk-... 粘贴你的密钥';
-        keyInput.style.cssText = 'flex:1;';
+        keyInput.style.cssText = 'flex:1;min-width:0;width:auto;margin-bottom:0;';
         keyInput.addEventListener('input', () => {
           set({ ...get(), apiKey: keyInput.value });
         });
-        keyWrap.appendChild(keyInput);
+        keyRow.appendChild(keyInput);
         const keyToggle = document.createElement('button');
         keyToggle.type = 'button';
-        keyToggle.textContent = '显示';
+        // 默认明文（普通键盘），可切隐藏；内联 style 与底下"检测"按钮完全一致（用户明确要求照抄检测按钮）
+        keyToggle.textContent = '隐藏';
         keyToggle.style.cssText =
-          'padding:6px 10px;font-size:11px;border:2px solid var(--ex-border2,#c3c8d4);background:var(--ex-surface2,#f2f4f9);color:var(--ex-text,#333);cursor:pointer;font-family:inherit;flex-shrink:0;';
+          'align-self:stretch;padding:0 14px;font-size:13px;border:1px solid var(--ex-border2,#c3c8d4);background:var(--ex-surface2,#f2f4f9);color:var(--ex-text,#333);cursor:pointer;font-family:inherit;flex-shrink:0;box-sizing:border-box;display:inline-flex;align-items:center;';
         keyToggle.addEventListener('click', () => {
           const hidden = keyInput.type === 'password';
           keyInput.type = hidden ? 'text' : 'password';
           keyToggle.textContent = hidden ? '隐藏' : '显示';
         });
-        keyWrap.appendChild(keyToggle);
-        container.appendChild(keyWrap);
+        keyRow.appendChild(keyToggle);
+        container.appendChild(keyRow);
 
         // 购买链接（贴心附上）
         if (preset?.keyUrl) {
@@ -148,7 +161,7 @@ export function registerProfileConfig(ctx: Context): void {
         modelInput.className = 'ks-input';
         modelInput.value = String(cur.model ?? preset?.model ?? '');
         modelInput.placeholder = '模型 ID（如 deepseek-chat）';
-        modelInput.style.cssText = 'flex:1;';
+        modelInput.style.cssText = 'flex:1;min-width:0;width:auto;margin-bottom:0;';
         modelInput.addEventListener('input', () => {
           set({ ...get(), model: modelInput.value });
         });
@@ -156,8 +169,9 @@ export function registerProfileConfig(ctx: Context): void {
         const detectBtn = document.createElement('button');
         detectBtn.type = 'button';
         detectBtn.textContent = '检测';
+        // 与密钥行"隐藏"按钮同款：细边框（1px）+ align-self:stretch 随输入框等高（按钮形状大小统一）
         detectBtn.style.cssText =
-          'padding:6px 10px;font-size:11px;border:2px solid var(--ex-border2,#c3c8d4);background:var(--ex-surface2,#f2f4f9);color:var(--ex-text,#333);cursor:pointer;font-family:inherit;flex-shrink:0;';
+          'align-self:stretch;padding:0 14px;font-size:13px;border:1px solid var(--ex-border2,#c3c8d4);background:var(--ex-surface2,#f2f4f9);color:var(--ex-text,#333);cursor:pointer;font-family:inherit;flex-shrink:0;box-sizing:border-box;display:inline-flex;align-items:center;';
         modelRow.appendChild(detectBtn);
         container.appendChild(modelRow);
         const modelHint = document.createElement('div');

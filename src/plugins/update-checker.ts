@@ -18,7 +18,7 @@ export const manifest: PluginManifest = {
   group: '工具',
   inject,
   provide: 'update',
-  protected: true,
+  protected: false,
   description: '检测新版本（GitHub releases）+ 下载 APK',
   apply,
 };

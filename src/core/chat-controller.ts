@@ -86,11 +86,19 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   /** 切换会话进行中标记：await 读 IDB 期间拒绝发送，避免用户消息写进旧会话（P2-8） */
   let switchingSession = false;
 
-  /** 保存会话（串行队列：上一次保存完成后再保存下一次，避免并发 put 旧数据覆盖新数据 P2-19） */
+  /** 保存会话（串行队列：上一次保存完成后再保存下一次，避免并发 put 旧数据覆盖新数据 P2-19）。
+   *  成功静默（高频调用不刷日志）；失败 error 记录。首次保存打一条 info 确认持久化链路通。 */
   let saveQueue: Promise<void> = Promise.resolve();
+  let firstSaveLogged = false;
   function saveSessionSafe(): void {
     saveQueue = saveQueue
-      .then(() => ctx.storage.saveConversation(session))
+      .then(() => {
+        if (!firstSaveLogged) {
+          firstSaveLogged = true;
+          logger.info('storage', `会话持久化链路就绪（${session.id}）`);
+        }
+        return ctx.storage.saveConversation(session);
+      })
       .catch((error) => {
         logger.error('storage', `保存会话失败: ${String(error)}`);
       });

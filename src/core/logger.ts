@@ -303,6 +303,16 @@ class Logger {
     return this.level;
   }
 
+  /** 实时日志监听器（GUI 日志视图订阅；每条新日志触发一次，避免轮询） */
+  private logListeners = new Set<(entry: LogEntry) => void>();
+  /** 订阅新日志，返回取消函数（实时显示用：GUI 打开日志页时订阅，关闭时取消） */
+  onLog(cb: (entry: LogEntry) => void): () => void {
+    this.logListeners.add(cb);
+    return () => {
+      this.logListeners.delete(cb);
+    };
+  }
+
   log(level: LogLevel, source: string, message: string): void {
     if (LEVEL_RANK[level] < LEVEL_RANK[this.level]) return; // 级别过滤
     const entry: LogEntry = {
@@ -316,6 +326,14 @@ class Logger {
     this.memory.push(entry);
     if (this.memory.length > MAX_MEMORY) this.memory.shift();
     this.persist();
+    // 实时通知监听器（同步回调，GUI 追加显示）
+    for (const cb of this.logListeners) {
+      try {
+        cb(entry);
+      } catch {
+        /* 单个监听器异常不影响日志写入 */
+      }
+    }
   }
 
   info(source: string, message: string): void {

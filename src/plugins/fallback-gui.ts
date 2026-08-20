@@ -53,6 +53,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   config = config ?? {};
   const root = (config.root as HTMLElement | undefined) ?? document.getElementById('app');
   if (!root) throw new Error('fallback-gui: 找不到挂载节点');
+  // 热备模式（H1）：bootstrap 常驻挂载但初始隐藏（hidden=true），由 fallback:show/hide 事件切显隐。
+  // 应急台作为内核兜底，始终挂载保证"关键时刻无需挂载操作"，只切 display。
+  const hiddenByDefault = config.hidden === true;
 
   // 中性极简样式：无设计风格（无圆角/无阴影/无图标/无彩色强调），纯功能可读
   const container = document.createElement('div');
@@ -85,7 +88,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .fg-logbar{display:flex;gap:6px;margin-bottom:8px;}
       .fg-logview{background:#1e1e1e;color:#d4d4d4;font-family:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-all;padding:10px;border:1px solid #444;min-height:200px;max-height:calc(100vh - 220px);overflow-y:auto;}
       .fg-hint{font-size:11px;color:#888;margin-bottom:10px;}
-      @media (max-width:640px){ .fg-head{padding:8px 10px;gap:6px;} .fg-tab{padding:4px 10px;font-size:11px;} }
+      @media (max-width:640px){ .fg-head{padding:calc(8px + env(safe-area-inset-top,0px)) 10px 8px;gap:6px;} .fg-tab{padding:4px 10px;font-size:11px;} }
     </style>
     <div class="fg-head">
       <div style="display:flex;align-items:center;min-width:0;">
@@ -118,6 +121,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     </div>
   `;
   root.appendChild(container);
+  // 热备初始隐藏（H1）：display:none 不布局不绘制，但 DOM/事件/监听全部就绪
+  if (hiddenByDefault) {
+    container.style.display = 'none';
+  }
 
   const pluginListEl = container.querySelector('[data-fg="pluginList"]') as HTMLElement;
   const logBodyEl = container.querySelector('[data-fg="logBody"]') as HTMLElement;
@@ -142,7 +149,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       pluginListEl.textContent = '拓扑服务不可用';
       return;
     }
-    const nodes = topo.nodes;
+    const nodes = topo.nodes.filter((n) => n.kind !== 'core');
     if (nodes.length === 0) {
       pluginListEl.textContent = '（无插件）';
       return;
@@ -247,8 +254,19 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     return range === 'today' ? '今天' : range === '3d' ? '最近3天' : '全部';
   }
 
-  logger.info('gui', '应急控制台已挂载');
+  logger.info('gui', `应急控制台已挂载${hiddenByDefault ? '（热备隐藏）' : ''}`);
   renderPlugins();
+
+  // H1 热备显隐：由 GUI 仲裁（topology ensureGui/switchTheme）emit 控制，应急台自身不决策
+  ctx.on('fallback:show', () => {
+    container.style.display = 'flex';
+    renderPlugins(); // 显示时刷新插件列表，保证最新状态
+    logger.info('gui', '应急控制台已显示');
+  });
+  ctx.on('fallback:hide', () => {
+    container.style.display = 'none';
+    logger.info('gui', '应急控制台已隐藏');
+  });
 
   ctx.effect(() => {
     return () => {

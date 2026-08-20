@@ -1,4 +1,4 @@
-/**
+﻿/**
  * KIRUSRAFT 内核入口（v0.0.27）
  * Cordis 装配：核心服务 + 插件挂载（全插件设计：统一 manifest 插槽遍历装配）。
  * GUI 仲裁（v0.0.19）：默认直接进主题插件 GUI（ui-exdark）；主题加载失败或用户选"默认"时挂兜底 GUI。
@@ -69,19 +69,20 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
     }
   }
 
-  // 5. 兜底 GUI：主题未提供完整 GUI（覆盖层主题/加载失败/未选主题）时挂兜底（属内核，受保护）
+  // 5. 应急控制台热备常驻（H1）：无条件挂载（hidden=true），由 fallback:show/hide 事件切显隐。
+  //    - 主题 GUI 正常：隐藏（不抢界面）；主题禁用/崩溃/未选：显示（关键时刻零挂载操作，只切 display）
+  //    - 属内核本体（受保护）。旧方案"需要时挂载"已被 H1 取代——挂载只发生在启动期，稳定无时序风险。
+  try {
+    await ctx.plugin(toCordisPlugin(FallbackGui.manifest), { root: options.root, hidden: true });
+  } catch (error) {
+    // 双保险兜底也失败：不崩 bootstrap，留控制台错误（此时确实无 GUI，用户可开 Web 控制台排查）
+    logger.error('gui', `兜底 GUI 挂载失败: ${String(error)}`);
+  }
   if (!guiReady) {
-    try {
-      await ctx.plugin(toCordisPlugin(FallbackGui.manifest), { root: options.root });
-    } catch (error) {
-      // 双保险兜底也失败：不崩 bootstrap，留控制台错误（此时确实无 GUI，用户可开 Web 控制台排查）
-      logger.error('gui', `兜底 GUI 挂载失败: ${String(error)}`);
-    }
+    ctx.emit('fallback:show');
   }
 
   // 6. 其余插件（服务商/工具/管理/更新检测）：遍历 manifest 挂载（跳过已挂载的 core/主题/兜底）
-  //    guiReady=true 时也必须跳过 fallback-gui：否则双挂载 → profile 分节被主题占坑、fallback 注册被吞、
-  //    禁用主题后兜底 GUI 早已在跑但功能残缺（白屏 bug 根因，子代理审查确认）
   const mounted = new Set(['core-services', theme, 'fallback-gui']);
   for (const m of PLUGINS) {
     if (mounted.has(m.name)) continue;

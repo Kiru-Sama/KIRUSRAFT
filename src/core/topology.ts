@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 内核拓扑服务（v0.0.19）
  * 聚合 Cordis registry + fiber.inject/store，产出"平台中心 + 插件舱段 + 过桥管线"拓扑快照。
  * 空间站语义（v0.0.22 改版，导体模型）：
@@ -32,6 +32,8 @@ export interface TopologyNode {
    * 持久化在 config.docking，贴靠链可达中心 = 已装载（导体模型）。
    */
   dockParent: string;
+  /** 虚拟节点（如平台中心 core）：非真实插件，UI 插件列表应过滤不展示（H2） */
+  virtual?: boolean;
 }
 
 /** 过桥管线：依赖越过停靠邻接的跨舱段连接（from 插件 → to 插件） */
@@ -292,8 +294,9 @@ export class TopologyService extends Service {
   /**
    * 确保界面存在（崩溃/禁用主题后的白屏保险，公共入口）。
    * 触发条件（用户语义）：①没有任何 ACTIVE 的主题 GUI（界面没了）②或关键插件 FAILED（影响使用）
-   * —— 才拉应急控制台；否则（主题正常挂着）不动作，避免无关错误误切界面。
-   * 已存在则 no-op。失败会抛错（调用方决定是否吞），不再静默。
+   * —— 才显示应急控制台；否则（主题正常挂着）隐藏它，避免抢界面。
+   * H1 热备语义：应急台 bootstrap 常驻挂载（hidden），本方法只切显隐，不再"需要时挂载"——
+   * 挂载只发生在启动期，运行时零挂载操作，从根上杜绝时序白屏。
    */
   async ensureGui(): Promise<{ ok: boolean; message?: string }> {
     try {
@@ -302,8 +305,20 @@ export class TopologyService extends Service {
       this.cache = null;
       const { hasGui, fallbackActive } = this.guiStatus();
       logger.info('topology', `ensureGui 判定: hasGui=${hasGui} fallbackActive=${fallbackActive} 节点=[${this.getTopology().nodes.map((n) => `${n.id}:${n.stateCode}`).join(' ')}]`);
-      if (hasGui || fallbackActive) return { ok: true };
+      if (hasGui) {
+        // 主题 GUI 在 → 隐藏应急台（不抢界面）
+        this.ctx.emit('fallback:hide');
+        return { ok: true };
+      }
+      if (fallbackActive) {
+        // 无主题 GUI + 应急台已热备 → 只显示
+        this.ctx.emit('fallback:show');
+        logger.info('topology', 'ensureGui: 应急控制台已显示（热备）');
+        return { ok: true };
+      }
+      // 应急台没挂上（异常）：尝试挂载
       await this.ensurePlugin('fallback-gui');
+      this.ctx.emit('fallback:show');
       logger.info('topology', 'ensureGui: 已拉起应急控制台');
       return { ok: true };
     } catch (error) {
@@ -313,18 +328,28 @@ export class TopologyService extends Service {
   }
 
   /** 崩溃恢复入口（crashRecovery 调用）：按用户语义判定是否真的需要应急控制台。
-   * ① 应急控制台已在 → 不动；② 有 ACTIVE 主题 GUI → 界面正常，不动；
-   * ③ 无 ACTIVE 主题（被禁用/崩溃/未选）或关键插件 FAILED → 拉应急控制台。
+   * ① 应急控制台已在（热备）→ 显示；② 有 ACTIVE 主题 GUI → 界面正常，隐藏应急台；
+   * ③ 无 ACTIVE 主题（被禁用/崩溃/未选）或关键插件 FAILED → 显示应急控制台。
    * 返回 { ok, message }；ok=false 仅表示拉起失败。
    */
   async ensureGuiIfNeeded(): Promise<{ ok: boolean; message?: string }> {
     try {
       this.cache = null;
       const { hasGui, fallbackActive } = this.guiStatus();
-      if (fallbackActive) return { ok: true, message: '应急控制台已运行' };
-      if (hasGui) return { ok: true, message: '界面正常，无需切换' };
-      // 无 ACTIVE 主题 GUI：界面缺失（禁用/崩溃/未选）或关键插件 FAILED → 进应急控制台
+      if (hasGui) {
+        // 主题正常 → 隐藏应急台（若热备在显示，收起来）
+        this.ctx.emit('fallback:hide');
+        return { ok: true, message: '界面正常，无需切换' };
+      }
+      if (fallbackActive) {
+        // 应急台已热备 → 显示
+        this.ctx.emit('fallback:show');
+        logger.info('topology', 'crashRecovery: 界面缺失，应急控制台已显示');
+        return { ok: true, message: '应急控制台已显示' };
+      }
+      // 应急台没挂上（异常）：尝试挂载
       await this.ensurePlugin('fallback-gui');
+      this.ctx.emit('fallback:show');
       logger.info('topology', 'crashRecovery: 界面缺失，已进入应急控制台');
       return { ok: true, message: '界面缺失，已进入应急控制台' };
     } catch (error) {
@@ -414,19 +439,19 @@ export class TopologyService extends Service {
       const activeThemes = topo.nodes.filter((n) => n.kind === 'theme' && n.stateCode === 2);
       const targetIsGui = isGuiTheme(this.ctx, themeName);
 
-      // 0. GUI 仲裁先行：目标自带 GUI 且尚未激活 → 先卸下兜底 GUI
-      //    （兜底 GUI 与 GUI 主题都注册 profile 分节，同 namespace 不能并存）
+      // 0. GUI 仲裁先行：目标自带 GUI 且尚未激活 → 先隐藏应急台（H1 热备：不再卸下，只切显隐）。
+      //    主题 GUI 挂载成功后由 ensureGui/switchTheme 仲裁统一控制显示；此时隐藏防双 GUI 叠加。
       if (targetIsGui && !activeThemes.some((t) => t.id === themeName)) {
-        await this.disposePlugin('fallback-gui');
+        this.ctx.emit('fallback:hide');
       }
 
-      // 1. 禁用旧主题（除目标外）。传 ensureGuiAfterDisable:false：步骤 0 已卸 fallback，
-      //    步骤 2/3 会统一仲裁，这里再拉 fallback 会与新主题双挂载 → 白屏（P0-1）
+      // 1. 禁用旧主题（除目标外）。传 ensureGuiAfterDisable:false：步骤 0 已隐藏 fallback，
+      //    步骤 2/3 会统一仲裁，这里再 show fallback 会与新主题叠加 → 白屏（P0-1）
       for (const t of activeThemes) {
         if (t.id === themeName) continue;
         const r = await this.togglePlugin(t.id, { ensureGuiAfterDisable: false });
         if (!r.ok) {
-          // 禁用旧主题失败：旧主题可能已被卸、新主题未挂、fallback 未拉 → 白屏无恢复（P0-2）
+          // 禁用旧主题失败：旧主题可能已被卸、新主题未挂、fallback 未显示 → 白屏无恢复（P0-2）
           const g = await this.ensureGui();
           if (!g.ok) logger.error('topology', g.message ?? '应急控制台拉起失败');
           logger.warn('topology', `禁用旧主题 ${t.id} 失败，已回退应急控制台: ${r.message ?? ''}`);
@@ -437,18 +462,16 @@ export class TopologyService extends Service {
       if (themeName && !activeThemes.some((t) => t.id === themeName)) {
         const r = await this.togglePlugin(themeName);
         if (!r.ok) {
-          // 目标主题加载失败：恢复应急控制台，保证有界面；不持久化（配置保留旧主题名，下次启动重试旧主题）
+          // 目标主题加载失败：显示应急控制台，保证有界面；不持久化（配置保留旧主题名，下次启动重试旧主题）
           const g = await this.ensureGui();
           if (!g.ok) logger.error('topology', g.message ?? '应急控制台拉起失败');
           logger.warn('topology', `主题 ${themeName} 切换失败，已回退应急控制台，配置保留原主题`);
           return r;
         }
       }
-      // 3. 兜底 GUI 仲裁：目标不提供完整 GUI → 保证应急控制台在
-      if (!targetIsGui) {
-        const g = await this.ensureGui();
-        if (!g.ok) logger.error('topology', g.message ?? '应急控制台拉起失败');
-      }
+      // 3. 兜底 GUI 仲裁：目标不提供完整 GUI → 显示应急台；提供 → 隐藏（防止残留显示）
+      const g = await this.ensureGui();
+      if (!g.ok) logger.error('topology', g.message ?? '应急控制台拉起失败');
       // 4. 持久化
       this.ctx.config.set('ui', { theme: themeName });
       logger.info('topology', `switchTheme: 完成 → 「${themeName || '默认（兜底界面）'}」`);
@@ -462,7 +485,7 @@ export class TopologyService extends Service {
     const nodes: TopologyNode[] = [];
     const edges: TopologyEdge[] = [];
 
-    // 平台中心（聚合节点）
+    // 平台中心（聚合节点，H2：虚拟节点，插件列表 UI 过滤不展示）
     nodes.push({
       id: 'core',
       kind: 'core',
@@ -471,6 +494,7 @@ export class TopologyService extends Service {
       stateCode: 2,
       injectServices: [],
       dockParent: 'core',
+      virtual: true,
     });
 
     // 插件舱段：节点来源 = 登记表 modules（全量，含未运行/已禁用）+ registry 状态合并。
@@ -535,5 +559,10 @@ export class TopologyService extends Service {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     topology: TopologyService;
+  }
+  interface Events {
+    /** 应急控制台显隐仲裁（H1 热备）：GUI 仲裁 emit，应急台监听切换 display */
+    'fallback:show'(): void;
+    'fallback:hide'(): void;
   }
 }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * topology 插件列表完整性测试（v0.0.29）
  * 锁住"禁用插件不消失"bug：节点来源 = 登记表全量 + registry 状态合并，
  * 禁用（registry 删 runtime）后插件仍出现在 getTopology 里且标"已禁用"。
@@ -81,26 +81,32 @@ describe('topology 插件列表完整性', () => {
 });
 
 describe('ensureGuiIfNeeded 崩溃恢复判定', () => {
-  it('无 ACTIVE 主题 GUI 时拉应急控制台（禁用主题后崩溃）', async () => {
+  it('无 ACTIVE 主题 GUI 时显示应急控制台（禁用主题后崩溃，H1 热备）', async () => {
     const ctx = new Context();
     new TopologyService(ctx);
     const svc = ctx.topology;
+    const shown: string[] = [];
+    ctx.on('fallback:show', () => shown.push('show'));
+    ctx.on('fallback:hide', () => shown.push('hide'));
     // 只登记主题（未挂载 = 无 ACTIVE 主题 GUI）
     svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
     svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
     const r = await svc.ensureGuiIfNeeded();
     expect(r.ok).toBe(true);
-    // fallback-gui 应被拉起（stateCode=2）
+    // H1 热备：fallback-gui 被挂载（stateCode=2），并 emit show
     const topo = svc.getTopology();
-    const fb = topo.nodes.find((n) => n.id === 'fallback-gui')!;
-    expect(fb.stateCode).toBe(2);
+    expect(topo.nodes.find((n) => n.id === 'fallback-gui')!.stateCode).toBe(2);
+    expect(shown).toContain('show');
     await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
   });
 
-  it('有 ACTIVE 主题 GUI 时不拉应急控制台（主题正常，无关错误不切界面）', async () => {
+  it('有 ACTIVE 主题 GUI 时隐藏应急控制台（主题正常，不抢界面，H1 热备）', async () => {
     const ctx = new Context();
     new TopologyService(ctx);
     const svc = ctx.topology;
+    const shown: string[] = [];
+    ctx.on('fallback:show', () => shown.push('show'));
+    ctx.on('fallback:hide', () => shown.push('hide'));
     svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
     svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
     // 挂载主题 → ACTIVE
@@ -109,16 +115,18 @@ describe('ensureGuiIfNeeded 崩溃恢复判定', () => {
     const r = await svc.ensureGuiIfNeeded();
     expect(r.ok).toBe(true);
     expect(r.message).toContain('无需切换');
-    // fallback-gui 不应被拉起
-    const topo = svc.getTopology();
-    expect(topo.nodes.find((n) => n.id === 'fallback-gui')!.stateCode).not.toBe(2);
+    // H1 热备：主题在 → emit hide（应急台不抢界面）
+    expect(shown).toContain('hide');
     await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
   });
 
-  it('禁用当前主题后应急控制台被拉起（缓存竞态修复：togglePlugin→ensureGui 路径）', async () => {
+  it('禁用当前主题后应急控制台被拉起（白屏回归：togglePlugin→ensureGui 路径）', async () => {
     const ctx = new Context();
     new TopologyService(ctx);
     const svc = ctx.topology;
+    const shown: string[] = [];
+    ctx.on('fallback:show', () => shown.push('show'));
+    ctx.on('fallback:hide', () => shown.push('hide'));
     svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
     svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
     // 挂载主题 → ACTIVE，且生成过拓扑缓存（竞态前提：旧快照可能残留）
@@ -129,7 +137,8 @@ describe('ensureGuiIfNeeded 崩溃恢复判定', () => {
     expect(r.ok).toBe(true);
     const topo = svc.getTopology();
     expect(topo.nodes.find((n) => n.id === 'ui-exdark')!.stateCode).toBe(4);
-    expect(topo.nodes.find((n) => n.id === 'fallback-gui')!.stateCode).toBe(2);
+    // H1 热备：禁用主题后 emit show（应急台显示接管）
+    expect(shown).toContain('show');
     await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
   });
 });
