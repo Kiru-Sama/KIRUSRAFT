@@ -128,4 +128,6 @@ export interface ProviderProfile {
   baseURL: string;
   model: string;
   apiKey: string;
+  /** 可选：余额查询接口（缺省 = DeepSeek 官方 /user/balance；非 DeepSeek 显示 —） */
+  balanceUrl?: string;
 }

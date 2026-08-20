@@ -459,7 +459,12 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (aiMsg) {
               aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
               const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
-              if (rEl) rEl.textContent = aiMsg.reasoning;
+              if (rEl) {
+                rEl.textContent = aiMsg.reasoning;
+                // v0.0.67：有思考内容才显示推理区（流式首增量到达时显示）
+                const details = rEl.closest('.ex-msg-reasoning') as HTMLElement | null;
+                if (details) details.style.display = '';
+              }
             }
           },
           onToolCall: (call) => {
@@ -756,7 +761,12 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (aiMsg) {
               aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
               const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
-              if (rEl) rEl.textContent = aiMsg.reasoning;
+              if (rEl) {
+                rEl.textContent = aiMsg.reasoning;
+                // v0.0.67：有思考内容才显示推理区（流式首增量到达时显示）
+                const details = rEl.closest('.ex-msg-reasoning') as HTMLElement | null;
+                if (details) details.style.display = '';
+              }
             }
           },
           onToolCall: (call) => {
@@ -851,7 +861,12 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (aiMsg) {
               aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
               const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
-              if (rEl) rEl.textContent = aiMsg.reasoning;
+              if (rEl) {
+                rEl.textContent = aiMsg.reasoning;
+                // v0.0.67：有思考内容才显示推理区（流式首增量到达时显示）
+                const details = rEl.closest('.ex-msg-reasoning') as HTMLElement | null;
+                if (details) details.style.display = '';
+              }
             }
           },
           onToolCall: (call) => {

@@ -158,19 +158,6 @@ const STYLE = `
 .ex-right-sidebar-header h2 { font-size:18px; text-transform:uppercase; letter-spacing:3px; color:var(--ex-accent); font-weight:900; }
 .ex-right-sidebar-content { flex:1; overflow-y:auto; padding:16px; }
 /* 分支总览（v0.0.65）：列表 + 候选切换 */
-.ex-branch-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; font-size:11px; font-weight:bold; letter-spacing:1px; text-transform:uppercase; color:var(--ex-text2); }
-.ex-branch-refresh { background:none; border:1px solid var(--ex-border); color:var(--ex-text2); font-size:12px; padding:1px 8px; cursor:pointer; font-family:var(--ex-font); }
-.ex-branch-refresh:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
-.ex-branch-list { display:flex; flex-direction:column; gap:4px; }
-.ex-branch-item { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:6px 8px; border:1px solid var(--ex-border); background:var(--ex-surface); font-size:11px; }
-.ex-branch-item.multi { border-color:var(--ex-border2); }
-.ex-branch-seq { color:var(--ex-text3); font-weight:bold; }
-.ex-branch-meta { color:var(--ex-text2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ex-branch-actions { display:flex; gap:2px; align-items:center; flex-shrink:0; }
-.ex-branch-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 5px; cursor:pointer; font-family:var(--ex-font); }
-.ex-branch-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); }
-.ex-branch-arrow:disabled { opacity:.35; cursor:default; }
-.ex-branch-count { padding:0 3px; color:var(--ex-text3); font-size:10px; }
 .ex-right-stats { background:var(--ex-surface); border:2px solid var(--ex-border); padding:12px; box-shadow:0 1px 6px rgba(0,0,0,.25); }
 .ex-right-stats-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12px; }
 .ex-right-stats-label { color:var(--ex-text2); font-weight:bold; }
@@ -217,8 +204,8 @@ const STYLE = `
 /* ---- 消息区（气泡 = 内容 + 底部操作条；v0.0.65 改版：时间在气泡外上方，去角色标签，对齐由 wrap 控制） ---- */
 .ex-msgwrap { flex:1; position:relative; display:flex; flex-direction:column; min-height:0; }
 .ex-messages { flex:1; overflow-y:auto; padding:20px 8px 8px; display:flex; flex-direction:column; position:relative; z-index:1; }
-/* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.66 拉宽横向空间（手机屏窄多利用） */
-.ex-msg-wrap { max-width:96%; margin-bottom:20px; display:flex; flex-direction:column; }
+/* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.67 拉宽到 94%（手机屏窄多利用，留两侧呼吸） */
+.ex-msg-wrap { max-width:94%; margin-bottom:20px; display:flex; flex-direction:column; }
 .ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
 .ex-msg-wrap.ex-ai { margin-right:auto; align-items:flex-start; }
 /* 时间戳：气泡外上方（小字，弱化） */
@@ -238,11 +225,10 @@ const STYLE = `
 .ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); }
 .ex-msg-btn:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-msg-btn.copied { background:var(--ex-accent2) !important; color:var(--ex-bg); border-color:var(--ex-accent2) !important; }
-/* AI 思考过程（v0.0.66）：可折叠推理区，放内容上方；不进 AI 上下文 */
-.ex-msg-reasoning { margin-bottom:8px; border:1px solid var(--ex-border); background:var(--ex-bg2); font-size:11px; color:var(--ex-text2); }
-.ex-msg-reasoning summary { padding:4px 8px; cursor:pointer; font-weight:bold; letter-spacing:1px; color:var(--ex-text3); user-select:none; }
-.ex-msg-reasoning summary:hover { color:var(--ex-accent); }
-.ex-msg-reasoning [data-msg-reasoning] { padding:4px 8px 8px; white-space:pre-wrap; word-break:break-word; line-height:1.5; border-top:1px solid var(--ex-border); }
+/* AI 思考过程（v0.0.67）：流式直显、不折叠；弱化区分（斜体/灰底/小字） */
+.ex-msg-reasoning { margin-bottom:8px; border-left:3px solid var(--ex-border2); background:var(--ex-bg2); font-size:11px; color:var(--ex-text3); padding:4px 8px; }
+.ex-msg-reasoning-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--ex-text3); margin-bottom:4px; font-weight:bold; }
+.ex-msg-reasoning [data-msg-reasoning] { white-space:pre-wrap; word-break:break-word; line-height:1.5; font-style:italic; }
 .ex-user .ex-msg-reasoning { display:none; } /* 推理只属于 AI */
 /* ---- 消息 Markdown 渲染（仅白名单标签，文本已 esc 全量转义） ---- */
 .ex-msg-content > :first-child { margin-top:0; }
@@ -670,14 +656,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       <aside class="ex-right-sidebar hidden" data-ex="right-sidebar">
         <div class="ex-right-sidebar-header"><h2>会话详情</h2></div>
         <div class="ex-right-sidebar-content">
-          <!-- 分支总览（v0.0.65）：列出节点候选状态，候选>1 可直接切换；替代"消息分支（开发中）"占位 -->
-          <div class="ex-branch-head">
-            <span>消息分支</span>
-            <button type="button" class="ex-branch-refresh" data-ex="branch-graph" title="刷新分支列表">↻</button>
-          </div>
-          <div class="ex-branch-list" data-ex="branch-list">
-            <div style="font-size:11px;color:var(--ex-text3);padding:8px 0;">加载中...</div>
-          </div>
           <!-- 信息卡（保留） -->
           <div class="ex-right-stats" data-ex="right-stats">
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">插件</span><span class="ex-right-stats-value" data-ex="stat-plugins">-</span></div>
@@ -685,17 +663,26 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">服务商</span><span class="ex-right-stats-value" data-ex="stat-providers">-</span></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">配置分节</span><span class="ex-right-stats-value" data-ex="stat-configs">-</span></div>
           </div>
-          <!-- 底部统计卡（v0.0.65：真实 usage 累计 + 汇率折算） -->
+          <!-- 底部统计卡（v0.0.67：真实 usage + 余额 API + 缓存命中 + 存储用量，参考 APITOOL updateRightSidebarStats） -->
           <div class="ex-right-stats" style="margin-top:12px;">
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">本场计费</span><span class="ex-right-stats-value" data-ex="stat-cost">–</span></div>
             <div class="ex-right-stats-divider"></div>
-            <div class="ex-right-stats-row"><span class="ex-right-stats-label">账户余额</span><span class="ex-right-stats-value" data-ex="stat-balance">–</span></div>
+            <div class="ex-right-stats-row" style="cursor:pointer;" data-ex="stat-balance-row" title="点击刷新余额">
+              <span class="ex-right-stats-label">账户余额 <span style="font-size:9px;">↻</span></span>
+              <span class="ex-right-stats-value" data-ex="stat-balance">–</span>
+            </div>
+            <div class="ex-right-stats-row" style="font-size:10px;padding-left:10px;"><span class="ex-right-stats-label" style="color:var(--ex-text3);">充值</span><span class="ex-right-stats-value" data-ex="stat-balance-topped" style="color:var(--ex-text3);">–</span></div>
+            <div class="ex-right-stats-row" style="font-size:10px;padding-left:10px;"><span class="ex-right-stats-label" style="color:var(--ex-text3);">赠金</span><span class="ex-right-stats-value" data-ex="stat-balance-granted" style="color:var(--ex-text3);">–</span></div>
             <div class="ex-right-stats-divider"></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">请求数</span><span class="ex-right-stats-value" data-ex="stat-requests">0</span></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">对话 token</span><span class="ex-right-stats-value" data-ex="stat-total-tokens">0</span></div>
             <div class="ex-right-stats-divider"></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输入</span><span class="ex-right-stats-value" data-ex="stat-input">–</span></div>
             <div class="ex-right-stats-row"><span class="ex-right-stats-label">本次输出</span><span class="ex-right-stats-value" data-ex="stat-output">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">缓存命中</span><span class="ex-right-stats-value" data-ex="stat-cache">–</span></div>
+            <div class="ex-right-stats-divider"></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">localStorage</span><span class="ex-right-stats-value" data-ex="stat-storage">–</span></div>
+            <div class="ex-right-stats-row"><span class="ex-right-stats-label">IndexedDB</span><span class="ex-right-stats-value" data-ex="stat-db">–</span></div>
           </div>
         </div>
       </aside>
@@ -959,7 +946,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const webSearchBtn = container.querySelector('[data-ex="websearch-btn"]') as HTMLButtonElement;
   const newChatBtn = container.querySelector('[data-ex="newchat"]') as HTMLButtonElement;
   const moreDot = container.querySelector('[data-ex="more-dot"]') as HTMLElement;
-  const branchGraphBtn = container.querySelector('[data-ex="branch-graph"]') as HTMLButtonElement;
   const convCountEl = container.querySelector('[data-ex="convcount"]') as HTMLElement;
   const convList = container.querySelector('[data-ex="convlist"]') as HTMLElement;
   const modelStatus = container.querySelector('[data-ex="model"]') as HTMLElement;
@@ -1167,63 +1153,99 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       return `${symbol}${v.toFixed(4)}`;
     };
     set('[data-ex="stat-cost"]', fmtMoney(stats.totalCost));
-    set('[data-ex="stat-balance"]', '—'); // 余额需平台 API，通用服务商不支持（APITOOL 仅 DeepSeek 有 /user/balance）
+    // 账户余额（v0.0.67，参考 APITOOL fetchBalance）：profile.balanceUrl 或 DeepSeek 官方；60s 缓存；点击刷新
+    void fetchBalance();
     set('[data-ex="stat-requests"]', String(stats.requestCount));
     set('[data-ex="stat-total-tokens"]', stats.totalTokens.toLocaleString());
-    set('[data-ex="stat-input"]', stats.lastInputTokens > 0 ? stats.lastInputTokens.toLocaleString() : '—');
-    set('[data-ex="stat-output"]', stats.lastOutputTokens > 0 ? stats.lastOutputTokens.toLocaleString() : '—');
+    set('[data-ex="stat-input"]', stats.lastInputTokens > 0 ? stats.lastInputTokens.toLocaleString() + ' tok' : '—');
+    set('[data-ex="stat-output"]', stats.lastOutputTokens > 0 ? stats.lastOutputTokens.toLocaleString() + ' tok' : '—');
+    // 缓存命中（最近一次请求的输入缓存占比，估算：无 usage 详情时 —）
+    set('[data-ex="stat-cache"]', '—'); // 需 provider 回传 cache 明细，当前 usage 无此字段
+    // 存储用量：localStorage 键长度合计 + IndexedDB 大小（估算）
+    try {
+      let ls = 0;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k) ls += (localStorage.getItem(k) ?? '').length + k.length;
+      }
+      set('[data-ex="stat-storage"]', `${(ls / 1024).toFixed(1)} KB`);
+    } catch {
+      set('[data-ex="stat-storage"]', '—');
+    }
+    void estimateDbSize().then((kb) => set('[data-ex="stat-db"]', kb > 0 ? `${kb} KB` : '—'));
+  }
+
+  // ---- 账户余额（v0.0.67，参考 APITOOL fetchBalance：balanceUrl/DeepSeek 官方 + 60s 缓存 + 点击刷新） ----
+  let balanceCache: { data: Record<string, unknown> | null; time: number } | null = null;
+  async function fetchBalance(): Promise<void> {
+    const set = (sel: string, val: string): void => {
+      const el = container.querySelector(sel) as HTMLElement | null;
+      if (el) el.textContent = val;
+    };
+    const profile = ctx.config.get('profile') as Record<string, unknown>;
+    const key = String(profile.apiKey ?? '');
+    if (!key) {
+      setBalanceUI(null);
+      return;
+    }
+    const id = String(profile.id ?? '');
+    const balanceUrl = String(profile.balanceUrl ?? '').trim();
+    const url = balanceUrl || (id === 'deepseek' ? 'https://api.deepseek.com/user/balance' : '');
+    if (!url) {
+      setBalanceUI(null); // 非 DeepSeek 且未配余额接口 → 中性 —
+      return;
+    }
+    if (balanceCache && Date.now() - balanceCache.time < 60000) {
+      setBalanceUI(balanceCache.data);
+      return;
+    }
+    try {
+      const res = await fetch(url, { headers: { authorization: `Bearer ${key}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as Record<string, unknown>;
+      balanceCache = { data, time: Date.now() };
+      setBalanceUI(data);
+    } catch {
+      balanceCache = { data: null, time: Date.now() };
+      setBalanceUI(null);
+    }
+  }
+  function setBalanceUI(data: Record<string, unknown> | null): void {
+    const set = (sel: string, val: string): void => {
+      const el = container.querySelector(sel) as HTMLElement | null;
+      if (el) el.textContent = val;
+    };
+    const infos = data?.balance_infos as { total_balance?: number; topped_up_balance?: number; granted_balance?: number }[] | undefined;
+    const b = infos?.[0];
+    if (!b) {
+      set('[data-ex="stat-balance"]', '—');
+      set('[data-ex="stat-balance-topped"]', '—');
+      set('[data-ex="stat-balance-granted"]', '—');
+      return;
+    }
+    set('[data-ex="stat-balance"]', `¥${b.total_balance ?? '—'}`);
+    set('[data-ex="stat-balance-topped"]', `¥${b.topped_up_balance ?? '—'}`);
+    set('[data-ex="stat-balance-granted"]', `¥${b.granted_balance ?? '—'}`);
+  }
+  // 余额行点击刷新
+  const balanceRow = container.querySelector('[data-ex="stat-balance-row"]') as HTMLElement | null;
+  balanceRow?.addEventListener('click', () => {
+    balanceCache = null; // 强制刷新
+    void fetchBalance();
+  });
+
+  /** 估算 IndexedDB 大小（遍历两个 store 的 JSON 序列化长度） */
+  async function estimateDbSize(): Promise<number> {
+    try {
+      const sessions = await ctx.storage.listConversations();
+      const bytes = JSON.stringify(sessions).length;
+      return Math.round(bytes / 1024);
+    } catch {
+      return 0;
+    }
   }
 
   /** 渲染右侧栏分支总览（v0.0.65）：列出全部节点，候选>1 高亮 + ←→ 直接切换；替代"分支图谱"占位 */
-  function renderBranchList(): void {
-    const listEl = container.querySelector('[data-ex="branch-list"]') as HTMLElement | null;
-    if (!listEl) return;
-    const snap = controller.getBranchSnapshot();
-    if (snap.length === 0) {
-      listEl.innerHTML = '<div style="font-size:11px;color:var(--ex-text3);padding:8px 0;">（暂无消息）</div>';
-      return;
-    }
-    listEl.innerHTML = '';
-    for (const n of snap) {
-      const item = document.createElement('div');
-      item.className = `ex-branch-item${n.candidateCount > 1 ? ' multi' : ''}`;
-      const seq = document.createElement('span');
-      seq.className = 'ex-branch-seq';
-      seq.textContent = `#${n.nodeIndex + 1}`;
-      const meta = document.createElement('span');
-      meta.className = 'ex-branch-meta';
-      meta.textContent = `${n.role === 'user' ? '用户' : 'AI'} · ${n.candidateCount} 候选`;
-      item.appendChild(seq);
-      item.appendChild(meta);
-      if (n.candidateCount > 1) {
-        const actions = document.createElement('div');
-        actions.className = 'ex-branch-actions';
-        const prevBtn = document.createElement('button');
-        prevBtn.className = 'ex-branch-arrow';
-        prevBtn.textContent = '←';
-        prevBtn.disabled = n.selectIndex <= 0;
-        prevBtn.addEventListener('click', () => {
-          controller.selectCandidate(n.nodeId, n.selectIndex - 1);
-          renderBranchList();
-        });
-        const count = document.createElement('span');
-        count.className = 'ex-branch-count';
-        count.textContent = `${n.selectIndex + 1}/${n.candidateCount}`;
-        const nextBtn = document.createElement('button');
-        nextBtn.className = 'ex-branch-arrow';
-        nextBtn.textContent = '→';
-        nextBtn.disabled = n.selectIndex >= n.candidateCount - 1;
-        nextBtn.addEventListener('click', () => {
-          controller.selectCandidate(n.nodeId, n.selectIndex + 1);
-          renderBranchList();
-        });
-        actions.append(prevBtn, count, nextBtn);
-        item.appendChild(actions);
-      }
-      listEl.appendChild(item);
-    }
-  }
-
   /** 插件功能区标题（manifest 的 group 字段 → 显示名） */
   const GROUP_LABELS: Record<string, string> = {
     基础: '基础 / Core',
@@ -1861,18 +1883,23 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
 
       const bubble = document.createElement('div');
       bubble.className = `ex-message ex-${role}`;
-      // AI 思考过程（v0.0.66）：推理区放内容上方，可折叠展示；不进 AI 上下文
+      // AI 思考过程（v0.0.67）：流式直接输出、不折叠隐藏。有思考内容才创建；流式空气泡先创建（等首增量）
       if (role === 'ai') {
-        const reasonEl = document.createElement('details');
-        reasonEl.className = 'ex-msg-reasoning';
-        const summary = document.createElement('summary');
-        summary.textContent = '思考过程';
-        reasonEl.appendChild(summary);
-        const bodyEl = document.createElement('div');
-        bodyEl.setAttribute('data-msg-reasoning', '');
-        bodyEl.textContent = message?.reasoning ?? '';
-        reasonEl.appendChild(bodyEl);
-        bubble.appendChild(reasonEl);
+        const hasReasoning = (message?.reasoning ?? '').length > 0;
+        if (hasReasoning || !message) {
+          const reasonEl = document.createElement('div');
+          reasonEl.className = 'ex-msg-reasoning';
+          if (!hasReasoning) reasonEl.style.display = 'none'; // 流式空气泡：等首个思考增量再显示
+          const label = document.createElement('div');
+          label.className = 'ex-msg-reasoning-label';
+          label.textContent = '思考';
+          reasonEl.appendChild(label);
+          const bodyEl = document.createElement('div');
+          bodyEl.setAttribute('data-msg-reasoning', '');
+          bodyEl.textContent = message?.reasoning ?? '';
+          reasonEl.appendChild(bodyEl);
+          bubble.appendChild(reasonEl);
+        }
       }
       // 多模态渲染：文本→Markdown，图片→img（dataURL 直接显示；参考 RikkaHub UIMessagePart.Image）
       const html = parts
@@ -1960,17 +1987,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         });
         tools.appendChild(editBtn);
       }
-      if (role === 'ai') {
-        const regenBtn = document.createElement('button');
-        regenBtn.className = 'ex-msg-btn';
-        regenBtn.textContent = '重发';
-        regenBtn.title = '重新生成此回复';
-        regenBtn.addEventListener('click', () => {
-          if (message) controller.regenerateAt(message.id);
-          else controller.regenerate();
-        });
-        tools.appendChild(regenBtn);
-      }
+      // v0.0.67：AI"重发"按钮移除——用户消息气泡的"编辑"就是重发（编辑后重新生成回复），不需要独立重发
       actions.appendChild(tools);
 
       bubble.appendChild(actions);
@@ -1987,6 +2004,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       if (lastAiBubble && lastAiBubble.isConnected) {
         const c = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
         if (c) c.innerHTML = c.textContent ? renderMarkdown(c.textContent) : '';
+        // v0.0.67：流式结束仍无思考内容 → 移除空推理区（不思考就不显示）
+        const rEl = lastAiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
+        if (rEl && !rEl.textContent?.trim()) {
+          rEl.closest('.ex-msg-reasoning')?.remove();
+        }
         // AI 所有信息发完：显示操作按钮（流式中隐藏，v0.0.66 判定）
         const actions = lastAiBubble.querySelector('[data-msg-actions]') as HTMLElement | null;
         if (actions) actions.style.display = '';
@@ -2073,14 +2095,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       deepThinkBtn.classList.toggle('on', thinkLevel > 0);
     };
     updateThinkLabel();
-    deepThinkBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!thinkPop || !thinkSlider) return;
-      // rikka 式底部面板：位置由 CSS（bottom 固定）决定，无需 top/left 计算
-      thinkSlider.value = String(thinkLevel);
-      if (thinkValueEl) thinkValueEl.textContent = THINK_LABELS[thinkLevel];
-      thinkPop.classList.add('show');
-    });
+    // v0.0.67：Think 按钮切换逻辑在下方统一处理（打开/收回 + 全局点外关闭），此处不再单独绑定
     thinkSlider?.addEventListener('input', () => {
       thinkLevel = Number(thinkSlider.value);
       if (thinkValueEl) thinkValueEl.textContent = THINK_LABELS[thinkLevel];
@@ -2092,11 +2107,26 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       thinkPop?.classList.remove('show');
       showToast(thinkLevel === 0 ? '思考已关闭' : thinkLevel === 1 ? '思考：自动' : `思考强度：${THINK_LABELS[thinkLevel]}`);
     });
-    // 点击别处关闭思考弹层
-    container.addEventListener('click', (e) => {
-      if (thinkPop && thinkPop.classList.contains('show') && !thinkPop.contains(e.target as Node) && e.target !== deepThinkBtn) {
-        thinkPop.classList.remove('show');
+    // 点击别处关闭思考弹层（v0.0.67：任何点击（含其他按钮/其他菜单）都收回——统一交互逻辑）
+    // 全局 document 级监听：点 thinkPop 内部不关，其余（含 deepThinkBtn 自身）都关
+    const closeThinkPop = () => thinkPop?.classList.remove('show');
+    document.addEventListener('click', (e) => {
+      if (thinkPop?.classList.contains('show') && !thinkPop.contains(e.target as Node)) {
+        closeThinkPop();
       }
+    });
+    // Think 按钮点击 = 切换（当前关闭则打开，当前打开则收回）
+    deepThinkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!thinkPop || !thinkSlider) return;
+      if (thinkPop.classList.contains('show')) {
+        closeThinkPop();
+        return;
+      }
+      thinkSlider.value = String(thinkLevel);
+      if (thinkValueEl) thinkValueEl.textContent = THINK_LABELS[thinkLevel];
+      closeAllMenus(); // v0.0.67：打开思考弹层前先关其他菜单
+      thinkPop.classList.add('show');
     });
 
     // 功能工具栏：上传文件（v0.0.64：图片读入→canvas 压缩→dataURL，随发送一起发给模型）
@@ -2211,6 +2241,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 更多菜单：打开/关闭（点外关闭）
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      // v0.0.67：打开更多菜单前先关其他菜单（防重叠）
+      closeAllMenus();
       moreMenu.classList.toggle('show');
     });
     const closeMoreMenu = () => moreMenu.classList.remove('show');
@@ -2288,6 +2320,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
       // 有 Key 才尝试检测；检测失败/无 Key → 空列表，显示"加载中/预设"提示
       detectedModels = null;
+      closeAllMenus(); // v0.0.67：打开模型下拉前先关其他菜单
       modelPop.classList.add('show');
       renderModelList('');
       const p = getProfile();
@@ -2336,7 +2369,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       rightSidebar.classList.toggle('hidden');
       rightMask.classList.toggle('show', !rightSidebar.classList.contains('hidden'));
       void renderRightStats();
-      renderBranchList();
     });
     // 更多菜单：能力设置（打开独立全屏页，模式切换/工具管理/检查更新 全部集中在该页）
     const moreCapabilityBtn = container.querySelector('[data-ex="more-capability"]') as HTMLButtonElement | null;
@@ -2409,6 +2441,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       menuShown = false;
       convMenu?.classList.remove('show');
     };
+    // v0.0.67：统一关闭所有二级菜单（打开任一菜单前先关其他，防重叠）
+    const closeAllMenus = (): void => {
+      moreMenu.classList.remove('show');
+      closeModelPop();
+      closeConvMenu();
+      thinkPop?.classList.remove('show');
+    };
     convList.addEventListener('pointerdown', (e) => {
       const item = (e.target as HTMLElement).closest('[data-ex-switch]') as HTMLElement | null;
       if (!item?.dataset.exSwitch) return;
@@ -2427,6 +2466,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         const pinnedSet = loadPinned();
         convMenu.dataset.pinned = String(pinnedSet.has(id));
         convMenu.querySelector('[data-ex-menu-action="pin"]')!.textContent = pinnedSet.has(id) ? '取消置顶' : '置顶';
+        closeAllMenus(); // v0.0.67：打开会话菜单前先关其他菜单
         convMenu.classList.add('show');
         menuShown = true; // 菜单已弹：松手不关
       }, 600);
@@ -2537,9 +2577,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         });
       }
     });
-    // 点击别处关闭菜单
-    container.addEventListener('click', (e) => {
-      if (convMenu && !convMenu.contains(e.target as Node)) closeConvMenu();
+    // 点击别处关闭菜单（v0.0.67：全局 document 级，点任何非菜单处（含其他按钮/菜单）都收回）
+    document.addEventListener('click', (e) => {
+      if (convMenu && convMenu.classList.contains('show') && !convMenu.contains(e.target as Node)) closeConvMenu();
     });
 
     // 对话管理模式工具条（v0.0.65 修正：全选/删除选中/退出）
@@ -2593,10 +2633,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 插件管理入口：在设置弹窗左侧导航（唯一入口，不放在更多菜单）
     // 设置入口已移到更多菜单最上面（v0.0.66），侧边栏按钮已移除
     // 右侧栏：刷新分支列表（替代"查看分支图谱"占位）
-    branchGraphBtn.addEventListener('click', () => {
-      renderBranchList();
-      showToast('分支列表已刷新');
-    });
+    // 右侧栏分支总览已移除（v0.0.67：分支图谱不好实现，删掉）
 
     // ==================== 设置面板交互（APITOOL 复刻：功能占位）====================
     // 遮罩点击关闭（全屏页面下几乎不会触发，保留防御）

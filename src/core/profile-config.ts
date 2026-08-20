@@ -23,6 +23,8 @@ export function registerProfileConfig(ctx: Context): void {
         apiKey: '',
         // 协议：deepseek/双协议预设默认 responses（最新）；单协议预设忽略此字段
         protocol: 'responses',
+        // 可选：余额查询接口（空 = DeepSeek 官方 /user/balance；非 DeepSeek 且未配 → 余额显示 —）
+        balanceUrl: '',
       },
       render: (container, get, set) => {
         const cur = get();
