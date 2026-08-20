@@ -209,12 +209,14 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, argCache: Map<str
       break;
     }
     case 'response.completed': {
-      // usage 统计（v0.0.65 计费）：Responses API 在 completed 事件携带 usage
+      // usage 统计（v0.0.65 计费 + v0.0.67 缓存命中）：Responses API 在 completed 事件携带 usage
       const u = record.usage as Record<string, unknown> | undefined;
       if (u) {
         const input = Number(u.input_tokens ?? 0);
         const output = Number(u.output_tokens ?? 0);
-        handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output });
+        const details = u.input_tokens_details as Record<string, unknown> | undefined;
+        const cache = Number(details?.cached_tokens ?? 0);
+        handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output, cacheInputTokens: cache });
       }
       break;
     }

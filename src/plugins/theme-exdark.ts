@@ -332,6 +332,10 @@ const STYLE = `
 /* ==================== 设置页（RikkaHub 竖向设置页复刻：全屏 + 横滑标签条 + 竖向卡片组） ==================== */
 .ex-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--ex-bg); z-index:2000; }
 .ex-modal.show { display:block; }
+/* 更新日志弹层（v0.0.67）：复用设置页头样式，内容区滚动展示 CHANGELOG */
+.ex-changelog { position:fixed; inset:0; width:100%; height:100%; z-index:2000; background:var(--ex-bg); display:flex; flex-direction:column; overflow:hidden; color:var(--ex-text); }
+.ex-changelog-body { flex:1; overflow-y:auto; padding:16px 20px; }
+.ex-changelog-content { margin:0; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; line-height:1.7; color:var(--ex-text2); white-space:pre-wrap; word-break:break-word; }
 /* 全屏设置页：占满视口（不再是居中弹窗），页面自身即整屏，遮罩背景无意义已去掉 */
 .ex-settings { position:fixed; inset:0; width:100%; height:100%; z-index:2000; background:var(--ex-bg); display:flex; flex-direction:column; overflow:hidden; color:var(--ex-text); }
 /* 固定头部：永远在页面顶部，不随内容滚动（返回按钮左侧 + 保存按钮右侧常驻） */
@@ -694,6 +698,21 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       <button type="button" class="ex-more-item" data-ex="more-settings">设置</button>
       <button type="button" class="ex-more-item" data-ex="more-sidebar">侧栏</button>
       <button type="button" class="ex-more-item" data-ex="more-capability">能力设置</button>
+      <button type="button" class="ex-more-item" data-ex="more-changelog">更新日志</button>
+    </div>
+    <!-- 更新日志弹层（v0.0.67：更多菜单 → 更新日志；内置 CHANGELOG 展示） -->
+    <div class="ex-modal" data-ex="changelog-modal">
+      <div class="ex-changelog">
+        <div class="ex-settings-head">
+          <div class="ex-settings-head-left">
+            <button type="button" class="ex-settings-back" data-ex="changelogClose" title="返回">←</button>
+            <h2>更新日志</h2>
+          </div>
+        </div>
+        <div class="ex-changelog-body">
+          <pre class="ex-changelog-content" data-ex="changelog-content"></pre>
+        </div>
+      </div>
     </div>
     <!-- 模型下拉（右上角模型名点击展开：自动检测模型列表 + 自定义输入） -->
     <div class="ex-model-pop" data-ex="model-pop">
@@ -1036,6 +1055,25 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     if (hidden) renderLogView();
   }
 
+  // ---- 更新日志（v0.0.67：更多菜单 → 更新日志；内置 CHANGELOG 从 v0.0.63 起） ----
+  const CHANGELOG = [
+    'v0.0.67：二级菜单统一交互（点外收回/互关）、思考流式直显、删分支图谱与AI重发按钮、气泡94%、右侧统计卡做实（余额/充值/赠金/缓存命中/存储用量）、更新日志入口',
+    'v0.0.66：消息编辑（用户重发/AI就地编辑+已编辑标记）、AI思考过程显示、流式完才显操作按钮、管理模式自动退出、设置入口移更多菜单、气泡改深色统一+拉宽',
+    'v0.0.65：分支节点链模型（RikkaHub 消息树：候选/切换/fork）、UI 占位全面做实（导出导入/计费统计/会话管理/性能调节）',
+    'v0.0.64：设置页保存生效（温度/提示词/轮数）、Think 思考强度透传、多模态图片上传（压缩+三协议映射）',
+    'v0.0.63：Agent 模式 + 能力设置页 + 检查更新入口',
+  ].join('\n\n');
+  function openChangelog(): void {
+    const modal = container.querySelector('[data-ex="changelog-modal"]') as HTMLElement | null;
+    const content = container.querySelector('[data-ex="changelog-content"]') as HTMLElement | null;
+    if (!modal) return;
+    if (content) content.textContent = CHANGELOG;
+    modal.classList.add('show');
+  }
+  function closeChangelog(): void {
+    container.querySelector('[data-ex="changelog-modal"]')?.classList.remove('show');
+  }
+
   function openSettings(tab?: string): void {
     // 渲染服务商极简配置（profile-config 分节：选卡/填 Key/自动检测模型/高级折叠）
     if (profileRender) {
@@ -1159,8 +1197,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     set('[data-ex="stat-total-tokens"]', stats.totalTokens.toLocaleString());
     set('[data-ex="stat-input"]', stats.lastInputTokens > 0 ? stats.lastInputTokens.toLocaleString() + ' tok' : '—');
     set('[data-ex="stat-output"]', stats.lastOutputTokens > 0 ? stats.lastOutputTokens.toLocaleString() + ' tok' : '—');
-    // 缓存命中（最近一次请求的输入缓存占比，估算：无 usage 详情时 —）
-    set('[data-ex="stat-cache"]', '—'); // 需 provider 回传 cache 明细，当前 usage 无此字段
+    // 缓存命中（v0.0.67）：最近一次请求的缓存 token / 输入 token 占比；无明细显示 —（如中转站不返回）
+    set(
+      '[data-ex="stat-cache"]',
+      stats.lastInputTokens > 0 && stats.lastCacheInputTokens > 0
+        ? `${Math.round((stats.lastCacheInputTokens / stats.lastInputTokens) * 100)}% (${stats.lastCacheInputTokens.toLocaleString()} tok)`
+        : '—',
+    );
     // 存储用量：localStorage 键长度合计 + IndexedDB 大小（估算）
     try {
       let ls = 0;
@@ -1234,11 +1277,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     void fetchBalance();
   });
 
-  /** 估算 IndexedDB 大小（遍历两个 store 的 JSON 序列化长度） */
+  /** 估算 IndexedDB 大小（APITOOL sizeBytes 思路：会话 JSON 的 UTF-16 字节 ≈ 字符数 × 2） */
   async function estimateDbSize(): Promise<number> {
     try {
       const sessions = await ctx.storage.listConversations();
-      const bytes = JSON.stringify(sessions).length;
+      const bytes = JSON.stringify(sessions).length * 2;
       return Math.round(bytes / 1024);
     } catch {
       return 0;
@@ -2362,6 +2405,19 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     moreSettingsBtn?.addEventListener('click', () => {
       moreMenu.classList.remove('show');
       openSettings();
+    });
+    // 更多菜单：更新日志（v0.0.67）——打开更新日志弹层
+    const moreChangelogBtn = container.querySelector('[data-ex="more-changelog"]') as HTMLButtonElement | null;
+    moreChangelogBtn?.addEventListener('click', () => {
+      moreMenu.classList.remove('show');
+      openChangelog();
+    });
+    // 更新日志弹层关闭
+    const changelogCloseBtn = container.querySelector('[data-ex="changelogClose"]') as HTMLButtonElement | null;
+    changelogCloseBtn?.addEventListener('click', closeChangelog);
+    const changelogModal = container.querySelector('[data-ex="changelog-modal"]') as HTMLElement | null;
+    changelogModal?.addEventListener('click', (e) => {
+      if (e.target === changelogModal) closeChangelog();
     });
     // 更多菜单：右侧边栏开关（APITOOL：右侧栏打开放更多里）
     moreSidebarBtn.addEventListener('click', () => {

@@ -186,14 +186,15 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       });
   }
 
-  /** 累计一次请求的 usage 到会话统计（v0.0.65 计费卡数据源） */
-  function accumulateUsage(inputTokens: number, outputTokens: number): void {
+  /** 累计一次请求的 usage 到会话统计（v0.0.65 计费卡数据源；v0.0.67 加缓存命中） */
+  function accumulateUsage(inputTokens: number, outputTokens: number, cacheInputTokens = 0): void {
     const chatCfg = (ctx.config.get('chat') ?? {}) as unknown as ChatConfig;
-    const s = session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0 };
+    const s = session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0, lastCacheInputTokens: 0 };
     s.requestCount++;
     s.totalTokens += inputTokens + outputTokens;
     s.lastInputTokens = inputTokens;
     s.lastOutputTokens = outputTokens;
+    s.lastCacheInputTokens = cacheInputTokens;
     s.totalCost += estimateCost(inputTokens, outputTokens, chatCfg);
     session.stats = s;
     saveSessionSafe();
@@ -201,7 +202,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   /** 当前会话用量统计（GUI 计费卡渲染用） */
   function getStats(): SessionStats {
-    return session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0 };
+    return session.stats ?? { requestCount: 0, totalTokens: 0, lastInputTokens: 0, lastOutputTokens: 0, totalCost: 0, lastCacheInputTokens: 0 };
   }
 
   /**
@@ -390,6 +391,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     // 本次请求 usage 累加（计费统计；claude 的 input/output 分两次回调，合并）
     let reqInput = 0;
     let reqOutput = 0;
+    let reqCache = 0;
     try {
       const textPreview = parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join(' ').slice(0, 60);
       logger.info('gui', `发送消息(${els.webSearch?.checked ? '联网' : '普通'}): ${textPreview}`);
@@ -486,6 +488,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
             if (u.inputTokens > 0) reqInput += u.inputTokens;
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
+            if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
           },
         },
       );
@@ -504,7 +507,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
         els.onStreamEnd?.();
       }
       // usage 统计（无论成功/失败/中止，收到过 usage 就累计）
-      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput, reqCache);
       // 无论成功/失败/中止，已生成的内容都要落盘（避免 UI 卡死/丢内容）
       saveSessionSafe();
     }
@@ -709,6 +712,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.onSendAccepted?.();
     let reqInput = 0;
     let reqOutput = 0;
+    let reqCache = 0;
     const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
     let aiAppended = false;
     const aiBubble = els.renderMessage('ai', aiParts);
@@ -787,6 +791,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
             if (u.inputTokens > 0) reqInput += u.inputTokens;
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
+            if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
           },
         },
       );
@@ -801,7 +806,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
         abortCtrl = null;
         els.onStreamEnd?.();
       }
-      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput, reqCache);
       saveSessionSafe();
     }
   }
@@ -814,6 +819,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.onSendAccepted?.();
     let reqInput = 0;
     let reqOutput = 0;
+    let reqCache = 0;
     const aiBubble = els.renderMessage('ai', aiParts);
     els.messages.appendChild(aiBubble);
     els.messages.scrollTop = els.messages.scrollHeight;
@@ -885,6 +891,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             // 按分量累加（工具循环多轮、claude 双回调都正确累计，不取最大值）
             if (u.inputTokens > 0) reqInput += u.inputTokens;
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
+            if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
           },
         },
       );
@@ -899,7 +906,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
         abortCtrl = null;
         els.onStreamEnd?.();
       }
-      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput);
+      if (reqInput > 0 || reqOutput > 0) accumulateUsage(reqInput, reqOutput, reqCache);
       saveSessionSafe();
     }
   }

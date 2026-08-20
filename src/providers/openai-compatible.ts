@@ -217,7 +217,8 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<str
     const u = record.usage as Record<string, unknown>;
     const input = Number(u.prompt_tokens ?? 0);
     const output = Number(u.completion_tokens ?? 0);
-    handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output });
+    const cache = Number(u.prompt_cache_hit_tokens ?? 0); // v0.0.67：缓存命中 token（DeepSeek 等）
+    handlers.onUsage?.({ inputTokens: input, outputTokens: output, totalTokens: input + output, cacheInputTokens: cache });
     return;
   }
   if (!Array.isArray(choices) || choices.length === 0) return;

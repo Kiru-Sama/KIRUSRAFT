@@ -107,8 +107,9 @@ export interface ChatStreamHandlers {
   onToolCall(call: { id: string; name: string; args: Record<string, unknown>; rawArguments?: string }): void;
   onDone(): void;
   onError(error: Error): void;
-  /** 可选：流结束收到 usage（token 统计；chat/completions 需 stream_options.include_usage，responses 在 completed 事件，claude 在 message_start/message_delta） */
-  onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number }): void;
+  /** 可选：流结束收到 usage（token 统计；chat/completions 需 stream_options.include_usage，responses 在 completed 事件，claude 在 message_start/message_delta）
+   *  cacheInputTokens：输入中命中缓存的 token 数（v0.0.67 缓存命中统计；chat=prompt_cache_hit_tokens，responses=input_tokens_details.cached_tokens，claude=cache_read_input_tokens） */
+  onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number; cacheInputTokens?: number }): void;
 }
 
 /** 会话级用量统计（v0.0.65：计费卡数据源，随会话落盘） */
@@ -119,6 +120,8 @@ export interface SessionStats {
   lastOutputTokens: number;
   /** 本场估算费用（美元，按 chat 分节单价折算；无单价时 0） */
   totalCost: number;
+  /** 最近一次请求的缓存命中 token（v0.0.67 缓存命中统计；无明细=0） */
+  lastCacheInputTokens: number;
 }
 
 /** 服务商 profile（可插件化扩展） */

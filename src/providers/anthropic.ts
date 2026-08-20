@@ -203,12 +203,13 @@ function dispatch(
   const type = record.type as string;
   switch (type) {
     case 'message_start': {
-      // usage 统计（v0.0.65 计费）：message_start 带 input_tokens
+      // usage 统计（v0.0.65 计费 + v0.0.67 缓存命中）：message_start 带 input_tokens + cache_read_input_tokens
       const msg = record.message as Record<string, unknown> | undefined;
       const u = msg?.usage as Record<string, unknown> | undefined;
       if (u) {
         const input = Number(u.input_tokens ?? 0);
-        handlers.onUsage?.({ inputTokens: input, outputTokens: 0, totalTokens: input });
+        const cache = Number(u.cache_read_input_tokens ?? 0);
+        handlers.onUsage?.({ inputTokens: input, outputTokens: 0, totalTokens: input, cacheInputTokens: cache });
       }
       break;
     }

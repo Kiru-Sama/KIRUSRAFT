@@ -222,14 +222,14 @@ describe('openai-compatible SSE 解析', () => {
   it('usage chunk（choices 空 + usage）触发 onUsage', async () => {
     mockFetchWithEvents([
       'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
-      'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"prompt_cache_hit_tokens":6}}\n\n',
       'data: [DONE]\n\n',
     ]);
     const h = makeHandlers();
     const usageSpy = vi.fn();
     await streamChat(baseRequest, { ...h, onUsage: usageSpy });
     expect(usageSpy).toHaveBeenCalledTimes(1);
-    expect(usageSpy.mock.calls[0][0]).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+    expect(usageSpy.mock.calls[0][0]).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15, cacheInputTokens: 6 });
   });
 
   it('请求体带 stream_options.include_usage（计费统计需要）', async () => {
