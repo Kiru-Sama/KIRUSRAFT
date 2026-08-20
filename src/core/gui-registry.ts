@@ -2,7 +2,7 @@
  * 界面/主题插件判定（v0.0.41 收敛版）
  * 单一来源：主题判定全部读 manifest（kind==='ui-theme' + providesGui），
  * 删除旧 GUI_THEMES 硬编码名单。加新主题无需改任何表。
- * 消费方：topology.ts（GUI 仲裁）、kernel-gui.ts（主题按钮）经此函数 + manifest 查询。
+ * 消费方：topology.ts（GUI 仲裁）经此函数 + manifest 查询。
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { isGuiThemePlugin } from './manifest';

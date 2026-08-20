@@ -105,7 +105,7 @@ export async function downloadApk(url: string): Promise<{ blob: Blob; filename: 
   }
 }
 
-/** 更新检测服务：解耦 kernel-gui 对 update-checker 模块函数的直接 import（插件 A 不再静态 import 插件 B） */
+/** 更新检测服务：提供 checkLatest/compareVersion/download，供各 UI 通过 inject ['update'] 使用（插件间不静态 import） */
 export class UpdateService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'update');
@@ -128,7 +128,7 @@ export class UpdateService extends Service {
 }
 
 export function apply(ctx: Context): void {
-  // 注册更新检测服务（kernel-gui 等通过 inject ['update'] 使用，不再直接 import 模块函数）
+  // 注册更新检测服务（各 UI 通过 inject ['update'] 使用，不再直接 import 模块函数）
   new UpdateService(ctx);
 
   // check_update 工具：模型可调用

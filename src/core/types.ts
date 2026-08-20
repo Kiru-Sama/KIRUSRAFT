@@ -8,8 +8,6 @@ declare module '@deepseek-ai/cordis' {
   interface Events {
     'session-switch'(id: string): void;
     'session-deleted'(id: string): void;
-    /** 唤起管理中心面板（各 GUI 的唯一"管理"入口按钮 → kernel-gui；tab 可选指定页） */
-    'kernel-gui:open'(tab?: string): void;
   }
 }
 

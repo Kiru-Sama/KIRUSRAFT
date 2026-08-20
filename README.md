@@ -35,7 +35,6 @@ src/
   plugins/            插件（每个文件含 manifest）
     core-services.ts  内核服务装配（受保护）
     fallback-gui.ts   兜底 GUI（属内核，受保护）
-    kernel-gui.ts     管理面板（受保护）
     theme-exdark.ts   Exdark 主题 GUI（ui-theme，providesGui）
     provider-deepseek.ts / tool-time.ts / update-checker.ts
   providers/          服务商实现
@@ -63,7 +62,7 @@ gradle -p android assembleDebug --console=plain # 构建 debug APK（需 JAVA_HO
 
 ## 受保护插件（禁用会破坏内核/兜底，需二次确认）
 
-`core-services`、`fallback-gui`、`kernel-gui`、`update-checker`（定义在 `src/core/topology.ts` 的 `PROTECTED_PLUGINS`，manifest 同步带 `protected: true` 供 UI 展示锁标识）。
+`core-services`、`fallback-gui`、`update-checker` 等（受保护判定单一来源 = 各插件 manifest 的 `protected: true`，由 `topology.isProtected()` 读取，不再维护硬编码名单）。
 
 ## 开发插件
 

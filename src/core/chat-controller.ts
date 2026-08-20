@@ -296,7 +296,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     }
   })();
 
-  // 跨插件事件：kernel-gui 会话 tab / 主题 GUI 侧边栏切换会话
+  // 跨插件事件：主题 GUI 侧边栏切换会话（session-switch 事件）
   ctx.on('session-switch', (id: unknown) => {
     void switchSession(String(id));
   });

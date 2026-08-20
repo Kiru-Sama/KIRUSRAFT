@@ -9,7 +9,6 @@ import * as CoreServices from './plugins/core-services';
 import * as ProviderDeepseek from './plugins/provider-deepseek';
 import * as ToolTime from './plugins/tool-time';
 import * as FallbackGui from './plugins/fallback-gui';
-import * as KernelGui from './plugins/kernel-gui';
 import * as UpdateChecker from './plugins/update-checker';
 import * as Exdark from './plugins/theme-exdark';
 import { logger } from './core/logger';
@@ -30,7 +29,6 @@ const PLUGINS: PluginManifest[] = [
   CoreServices.manifest,
   ProviderDeepseek.manifest,
   ToolTime.manifest,
-  KernelGui.manifest,
   UpdateChecker.manifest,
   Exdark.manifest,
   FallbackGui.manifest,
@@ -100,7 +98,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   }
 
   // 7. 崩溃自动拉起应急控制台（白屏终极保险）：
-  //    触发条件（用户语义）：①没有任何 ACTIVE 的主题 GUI（界面没了）②或关键插件（core-services/kernel-gui）FAILED
+  //    触发条件（用户语义）：①没有任何 ACTIVE 的主题 GUI（界面没了）②或关键插件（core-services）FAILED
   //    —— 才进应急控制台。无关错误（如网络请求 rejection）不触发，避免误切界面。
   //    logger 已先记录原始错误（window error hook），此处只做界面恢复判定。
   const crashRecovery = (): void => {

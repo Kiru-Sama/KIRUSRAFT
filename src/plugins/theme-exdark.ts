@@ -1280,7 +1280,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     bindPluginList(listEl);
   }
 
-  /** 单张插件卡片（状态徽标 + 权限行 + 就地展开；与 kernel-gui 功能开关页统一） */
+  /** 单张插件卡片（状态徽标 + 权限行 + 就地展开；与内核插件启停逻辑统一） */
   function pluginCardHtml(n: { id: string; name: string; stateCode: number; state: string; injectServices: string[] }): string {
     const meta = ctx.topology.getManifest(n.id);
     const zh = meta?.label?.zh ?? n.name;

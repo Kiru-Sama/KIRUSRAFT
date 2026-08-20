@@ -360,8 +360,7 @@ export class TopologyService extends Service {
 
   /**
    * 界面状态判定（ensureGui / ensureGuiIfNeeded 共用，P2-16 消除分叉）：
-   * - hasGui：有 ACTIVE 的 GUI 主题（kind=theme 且运行）。kernel-gui 是管理面板（overlay），
-   *   不是主界面（kind='gui'），不会命中；fallback-gui kind='gui' 同样不会命中，无需排除。
+   * - hasGui：有 ACTIVE 的 GUI 主题（kind=theme 且运行）。管理面板/应急台（kind='gui'）不是主界面，不会命中。
    * - fallbackActive：应急控制台是否在运行。
    */
   private guiStatus(): { hasGui: boolean; fallbackActive: boolean } {
