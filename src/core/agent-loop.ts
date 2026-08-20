@@ -76,8 +76,9 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
       return;
     }
 
-    // 执行工具，回传结果
+    // 执行工具，回传结果（P2-13：可中断——中止后不再执行排队工具，避免 abort 后仍跑完整批）
     for (const call of toolCalls) {
+      if (options.signal?.aborted) break;
       const argumentsStr = call.rawArguments ?? JSON.stringify(call.args);
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: argumentsStr });
       try {

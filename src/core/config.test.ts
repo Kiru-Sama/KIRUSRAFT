@@ -69,9 +69,18 @@ describe('config 配置中心', () => {
     expect(cfg.get('test')).toEqual({ a: 42, b: 'y' });
   });
 
-  it('register 重复命名空间抛错', () => {
+  it('register 重复命名空间不抛错，返回 no-op disposer（P2-9 降级）', () => {
     const cfg = new ConfigService(ctx);
     cfg.register(ctx, { namespace: 'dup', displayName: '测试', defaults: {} });
-    expect(() => cfg.register(ctx, { namespace: 'dup', displayName: '测试2', defaults: {} })).toThrow();
+    const d = cfg.register(ctx, { namespace: 'dup', displayName: '测试2', defaults: {} });
+    expect(typeof d).toBe('function');
+    // 不抛错、不覆盖原分节
+    expect(cfg.list().filter((s) => s.namespace === 'dup')).toHaveLength(1);
+  });
+
+  it('set 未注册 namespace 不抛错（容错不丢数据，P2-10）', () => {
+    const cfg = new ConfigService(ctx);
+    expect(() => cfg.set('ghost', { a: 1 })).not.toThrow();
+    expect(cfg.get('ghost')).toEqual({ a: 1 });
   });
 });

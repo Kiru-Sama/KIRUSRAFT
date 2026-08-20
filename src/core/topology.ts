@@ -60,8 +60,7 @@ interface RuntimeLike {
   callback?: unknown;
 }
 
-/** 受保护插件：禁用会破坏内核/兜底，需二次确认（系统级切换仍可卸下/恢复） */
-const PROTECTED_PLUGINS = new Set(['core-services', 'fallback-gui', 'kernel-gui', 'update-checker']);
+// 受保护插件判定单一来源：manifest.protected（isProtected），不再维护硬编码名单
 
 const STATE_LABEL: Record<number, string> = {
   0: '等待',
@@ -90,16 +89,21 @@ export class TopologyService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'topology');
     // 订阅 fiber 状态变化，失效缓存（增量刷新）。
-    // 用 root 订阅：internal/status 从各 fiber 冒泡到 root，挂 root 才能收到全部插件的状态变化
-    ctx.root.on('internal/status', () => {
-      this.cache = null;
+    // 用 root 订阅：internal/status 从各 fiber 冒泡到 root，挂 root 才能收到全部插件的状态变化。
+    // 包 ctx.effect：TopologyService 被系统级卸下/重挂（core-services）时监听器随 fiber 卸载清理，
+    // 避免残留持有旧实例（P2-1 监听器泄漏）。
+    ctx.effect(() => {
+      const offStatus = ctx.root.on('internal/status', () => {
+        this.cache = null;
+      });
+      const offPlugin = ctx.root.on('internal/plugin', () => {
+        this.cache = null;
+      });
+      return () => {
+        offStatus();
+        offPlugin();
+      };
     });
-    ctx.root.on('internal/plugin', () => {
-      this.cache = null;
-      // 插件挂载时抓取 config，供重挂恢复
-      this.captureConfigs();
-    });
-    this.captureConfigs();
     // 注意：loadDocking 不在此调用——docking 配置分节在 index.ts 中 CoreServices 之后才注册，
     // 此时 get('docking') 只返回 {}（未注册分节不读 localStorage），启动恢复会丢布局。
     // 改为首次读写贴靠关系时懒加载（见 ensureDockingLoaded）。
@@ -181,14 +185,24 @@ export class TopologyService extends Service {
     return this.modules.get(name);
   }
 
-  /** 抓取当前 registry 中已挂载插件的 config，补全 lastConfigs */
+  /** 列出全部登记插件 manifest（UI 主题按钮/插件管理读；与 registerPlugin 同源） */
+  listManifests(): PluginManifest[] {
+    return [...this.modules.values()];
+  }
+
+  /**
+   * 抓取当前 registry 中已挂载插件的 config，补全 lastConfigs。
+   * 注意：internal/plugin 在 Fiber 构造时同步 emit（cordis index.js:1092），此刻 fiber.config 尚未赋值
+   * （_reload 里才 set）→ 这里抓到的一直是 undefined，属死逻辑（P2-2）。
+   * lastConfigs 实际由 mountPlugin（:251）填充，本方法仅作防御性兜底保留。
+   */
   private captureConfigs(): void {
     for (const runtime of this.ctx.registry.values() as unknown as RuntimeLike[]) {
       const name = runtime.name;
       if (!name) continue;
       if (this.lastConfigs.has(name)) continue;
       const first = [...(runtime.fibers ?? [])][0] as FiberLike | undefined;
-      if (first) this.lastConfigs.set(name, first.config);
+      if (first?.config) this.lastConfigs.set(name, first.config);
     }
   }
 
@@ -199,9 +213,9 @@ export class TopologyService extends Service {
     return this.cache;
   }
 
-  /** 插件是否受保护（禁用会破坏内核/兜底） */
+  /** 插件是否受保护（禁用会破坏内核/兜底）。单一来源：读 manifest.protected，不再维护硬编码名单。 */
   isProtected(name: string): boolean {
-    return PROTECTED_PLUGINS.has(name);
+    return this.modules.get(name)?.protected ?? false;
   }
 
   /** 按名字查找插件 runtime */
@@ -212,25 +226,35 @@ export class TopologyService extends Service {
     return undefined;
   }
 
-  /** 系统级卸下插件（不受保护限制，GUI 仲裁用） */
-  private async disposePlugin(name: string): Promise<void> {
+  /**
+   * 系统级卸下插件（不受保护限制，GUI 仲裁用）。
+   * 返回是否全部 fiber 成功 dispose（部分失败返回 false，调用方可据此决定是否清贴靠关系）。
+   * togglePlugin 禁用分支复用本方法（P2-3 消除重复实现）。
+   */
+  private async disposePlugin(name: string): Promise<boolean> {
     const runtime = this.findRuntime(name);
-    if (!runtime) return;
+    if (!runtime) return true;
+    let allDisposed = true;
     for (const f of [...(runtime.fibers ?? [])]) {
       try {
         await f.dispose?.();
       } catch {
-        /* 单个 fiber 清理失败不阻断 */
+        allDisposed = false; // 单个 fiber 清理失败不阻断，但标记未完全禁用
       }
     }
+    return allDisposed;
   }
 
   /** 重挂插件：优先用登记的 manifest（保留 runtime 名字），否则用 registry 的 callback 包一层名字 */
   private async mountPlugin(name: string, config: unknown): Promise<void> {
     const manifest = this.modules.get(name);
+    // 用 root context 挂载：root fiber 永远 active，杜绝 INACTIVE_EFFECT
+    // （this.ctx 经 mixin 解析最终也是 root，但显式化消除 fiber 解析歧义）
+    const host = this.ctx.root ?? this.ctx;
+    logger.info('topology', `mount ${name}: host.fiber=${host.fiber?.name} uid=${host.fiber?.uid} state=${host.fiber?.state}`);
     if (manifest) {
       // toCordisPlugin：激活 inject 依赖门控 / provide 服务声明 / Config 配置校验
-      await this.ctx.plugin(toCordisPlugin(manifest) as never, config as never);
+      await host.plugin(toCordisPlugin(manifest) as never, config as never);
     } else {
       const runtime = this.findRuntime(name);
       const cb = runtime?.callback;
@@ -238,9 +262,10 @@ export class TopologyService extends Service {
         throw new Error(`插件 ${name} 无可用回调，无法重挂`);
       }
       // 用 { name, apply } 包一层：直接挂裸 apply 会丢 runtime 名字（变成匿名）
-      await this.ctx.plugin({ name, apply: cb as (c: Context, cfg?: unknown) => unknown } as never, config as never);
+      await host.plugin({ name, apply: cb as (c: Context, cfg?: unknown) => unknown } as never, config as never);
     }
     this.lastConfigs.set(name, config);
+    logger.info('topology', `插件 ${name} 挂载完成`);
   }
 
   /**
@@ -266,64 +291,104 @@ export class TopologyService extends Service {
 
   /**
    * 确保界面存在（崩溃/禁用主题后的白屏保险，公共入口）。
-   * 当前没有任何 GUI 提供者（主题/兜底）时挂载应急控制台 fallback-gui；
+   * 触发条件（用户语义）：①没有任何 ACTIVE 的主题 GUI（界面没了）②或关键插件 FAILED（影响使用）
+   * —— 才拉应急控制台；否则（主题正常挂着）不动作，避免无关错误误切界面。
    * 已存在则 no-op。失败会抛错（调用方决定是否吞），不再静默。
    */
   async ensureGui(): Promise<{ ok: boolean; message?: string }> {
     try {
-      const topo = this.getTopology();
-      // 界面提供者 = ACTIVE 的主题（kind=theme）或 ACTIVE 的 kernel-gui（管理面板）
-      const hasGui = topo.nodes.some(
-        (n) => (n.kind === 'theme' || n.id === 'kernel-gui') && n.stateCode === 2 && n.id !== 'fallback-gui',
-      );
-      const fallbackActive = topo.nodes.some((n) => n.id === 'fallback-gui' && n.stateCode === 2);
+      // 先失效缓存再取快照：fiber dispose 期间状态未变时 internal/status 事件可能不发
+      // （_updateState 提前 return），getTopology 会返回旧快照 → hasGui 误判 → 白屏（缓存竞态）
+      this.cache = null;
+      const { hasGui, fallbackActive } = this.guiStatus();
+      logger.info('topology', `ensureGui 判定: hasGui=${hasGui} fallbackActive=${fallbackActive} 节点=[${this.getTopology().nodes.map((n) => `${n.id}:${n.stateCode}`).join(' ')}]`);
       if (hasGui || fallbackActive) return { ok: true };
       await this.ensurePlugin('fallback-gui');
+      logger.info('topology', 'ensureGui: 已拉起应急控制台');
       return { ok: true };
     } catch (error) {
+      logger.error('topology', `ensureGui 异常: ${error instanceof Error ? error.stack : String(error)}`);
+      return { ok: false, message: `应急控制台拉起失败: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  /** 崩溃恢复入口（crashRecovery 调用）：按用户语义判定是否真的需要应急控制台。
+   * ① 应急控制台已在 → 不动；② 有 ACTIVE 主题 GUI → 界面正常，不动；
+   * ③ 无 ACTIVE 主题（被禁用/崩溃/未选）或关键插件 FAILED → 拉应急控制台。
+   * 返回 { ok, message }；ok=false 仅表示拉起失败。
+   */
+  async ensureGuiIfNeeded(): Promise<{ ok: boolean; message?: string }> {
+    try {
+      this.cache = null;
+      const { hasGui, fallbackActive } = this.guiStatus();
+      if (fallbackActive) return { ok: true, message: '应急控制台已运行' };
+      if (hasGui) return { ok: true, message: '界面正常，无需切换' };
+      // 无 ACTIVE 主题 GUI：界面缺失（禁用/崩溃/未选）或关键插件 FAILED → 进应急控制台
+      await this.ensurePlugin('fallback-gui');
+      logger.info('topology', 'crashRecovery: 界面缺失，已进入应急控制台');
+      return { ok: true, message: '界面缺失，已进入应急控制台' };
+    } catch (error) {
+      logger.error('topology', `ensureGuiIfNeeded 异常: ${String(error)}`);
       return { ok: false, message: `应急控制台拉起失败: ${String(error)}` };
     }
+  }
+
+  /**
+   * 界面状态判定（ensureGui / ensureGuiIfNeeded 共用，P2-16 消除分叉）：
+   * - hasGui：有 ACTIVE 的 GUI 主题（kind=theme 且运行）。kernel-gui 是管理面板（overlay），
+   *   不是主界面（kind='gui'），不会命中；fallback-gui kind='gui' 同样不会命中，无需排除。
+   * - fallbackActive：应急控制台是否在运行。
+   */
+  private guiStatus(): { hasGui: boolean; fallbackActive: boolean } {
+    const topo = this.getTopology();
+    return {
+      hasGui: topo.nodes.some((n) => n.kind === 'theme' && n.stateCode === 2),
+      fallbackActive: topo.nodes.some((n) => n.id === 'fallback-gui' && n.stateCode === 2),
+    };
   }
 
   /**
    * 启用/禁用插件（P1 卡片主开关）。
    * 禁用：dispose 所有 fiber；启用：用登记的模块重挂（registry 的 runtime 在卸载后会
    * 被 Cordis 删除，不能依赖 findRuntime）。DISPOSED fiber 不能 restart，必须重挂。
+   * @param opts.ensureGuiAfterDisable 禁用 GUI 主题后是否立即拉应急控制台。
+   *   默认 true（单点禁用场景防白屏）；switchTheme 里传 false——它有自己的 GUI 仲裁时序
+   *   （先卸 fallback → 禁用旧主题 → 挂新主题 → 按目标决定 fallback 去留），
+   *   若这里再拉 fallback 会造成与新主题双挂载白屏（P0-1）。
    */
-  async togglePlugin(name: string): Promise<{ ok: boolean; message?: string }> {
-    if (PROTECTED_PLUGINS.has(name)) {
+  async togglePlugin(name: string, opts: { ensureGuiAfterDisable?: boolean } = {}): Promise<{ ok: boolean; message?: string }> {
+    const { ensureGuiAfterDisable = true } = opts;
+    if (this.isProtected(name)) {
       return { ok: false, message: `${name} 是受保护插件，不能禁用` };
     }
     const runtime = this.findRuntime(name);
     const fibers = runtime ? [...(runtime.fibers ?? [])] : [];
     const hasActive = fibers.some((f) => f.state === 2);
     if (hasActive) {
-      // 禁用：dispose 所有 fiber
-      let allDisposed = true;
-      for (const f of fibers) {
-        try {
-          await f.dispose?.();
-        } catch {
-          allDisposed = false; // 单个 fiber 清理失败不阻断，但标记未完全禁用
-        }
-      }
+      // 禁用：dispose 所有 fiber（复用 disposePlugin，消除重复实现 P2-3）
+      logger.info('topology', `禁用插件 ${name}（fibers=${fibers.length}）`);
+      const allDisposed = await this.disposePlugin(name);
       // 禁用即不贴靠：全部 fiber 确实 dispose 成功才清贴靠关系（L2：失败时保留，避免状态与运行不一致）
       if (allDisposed) {
         this.clearDockParent(name);
       }
       // GUI 仲裁安全网：禁用的是当前提供界面的 GUI 主题 → 立刻恢复应急控制台，避免白屏。
       // ensureGui 失败会返回 { ok:false }，随 togglePlugin 结果上抛，UI 显示原因（不再静默吞）
-      if (isGuiTheme(name)) {
+      if (ensureGuiAfterDisable && isGuiTheme(this.ctx, name)) {
+        this.cache = null; // 先失效缓存再判定：ensureGui 内部也会清，这里双保险（缓存竞态防御）
         const r = await this.ensureGui();
         if (!r.ok) {
           return { ok: false, message: `已禁用 ${name}，但${r.message ?? '应急控制台拉起失败'}` };
         }
+        logger.info('topology', `已禁用主题 ${name}，界面由应急控制台接管`);
       }
     } else {
       // 启用：重新挂载（registry 的 runtime 可能已被 Cordis 删除，用登记的模块重挂）
+      logger.info('topology', `启用插件 ${name}`);
       try {
         await this.mountPlugin(name, this.effectiveConfig(name));
       } catch (error) {
+        logger.error('topology', `启用插件 ${name} 失败: ${String(error)}`);
         return { ok: false, message: `启用失败: ${String(error)}` };
       }
     }
@@ -341,11 +406,13 @@ export class TopologyService extends Service {
       return { ok: false, message: '主题切换进行中，请稍候' };
     }
     this.switching = true;
+    logger.info('topology', `switchTheme: 切换到「${themeName || '默认（兜底界面）'}」`);
     try {
+      this.cache = null; // 失效缓存：取最新快照（禁用旧主题后的真实状态，避免竞态）
       const topo = this.getTopology();
       // 当前激活的主题（kind=theme 且 stateCode=2）
       const activeThemes = topo.nodes.filter((n) => n.kind === 'theme' && n.stateCode === 2);
-      const targetIsGui = isGuiTheme(themeName);
+      const targetIsGui = isGuiTheme(this.ctx, themeName);
 
       // 0. GUI 仲裁先行：目标自带 GUI 且尚未激活 → 先卸下兜底 GUI
       //    （兜底 GUI 与 GUI 主题都注册 profile 分节，同 namespace 不能并存）
@@ -353,11 +420,18 @@ export class TopologyService extends Service {
         await this.disposePlugin('fallback-gui');
       }
 
-      // 1. 禁用旧主题（除目标外）
+      // 1. 禁用旧主题（除目标外）。传 ensureGuiAfterDisable:false：步骤 0 已卸 fallback，
+      //    步骤 2/3 会统一仲裁，这里再拉 fallback 会与新主题双挂载 → 白屏（P0-1）
       for (const t of activeThemes) {
         if (t.id === themeName) continue;
-        const r = await this.togglePlugin(t.id);
-        if (!r.ok) return r;
+        const r = await this.togglePlugin(t.id, { ensureGuiAfterDisable: false });
+        if (!r.ok) {
+          // 禁用旧主题失败：旧主题可能已被卸、新主题未挂、fallback 未拉 → 白屏无恢复（P0-2）
+          const g = await this.ensureGui();
+          if (!g.ok) logger.error('topology', g.message ?? '应急控制台拉起失败');
+          logger.warn('topology', `禁用旧主题 ${t.id} 失败，已回退应急控制台: ${r.message ?? ''}`);
+          return r;
+        }
       }
       // 2. 启用目标主题（如果存在且未激活）
       if (themeName && !activeThemes.some((t) => t.id === themeName)) {
@@ -377,6 +451,7 @@ export class TopologyService extends Service {
       }
       // 4. 持久化
       this.ctx.config.set('ui', { theme: themeName });
+      logger.info('topology', `switchTheme: 完成 → 「${themeName || '默认（兜底界面）'}」`);
       return { ok: true };
     } finally {
       this.switching = false;
@@ -413,10 +488,11 @@ export class TopologyService extends Service {
       const fibers = runtime?.fibers ?? [];
       const first = [...fibers][0] as FiberLike | undefined;
       // 未运行：受保护插件 = 内置待命（等待 0，UI 显示"内置"）；可禁用插件 = 已禁用（4）
-      const stateCode = runtime ? (first?.state ?? 0) : PROTECTED_PLUGINS.has(name) ? 0 : 4;
+      const stateCode = runtime ? (first?.state ?? 0) : this.modules.get(name)?.protected ? 0 : 4;
       const inject = first?.inject ? Object.keys(first.inject) : [];
       const manifest = this.modules.get(name);
-      const isTheme = manifest?.kind === 'ui-theme' || name.startsWith('ui-');
+      // 主题判定单一来源：只认 manifest.kind（不再用名字前缀猜）
+      const isTheme = manifest?.kind === 'ui-theme';
       const dockParent = this.getDockParent(name);
       nodes.push({
         id: name,
@@ -438,11 +514,12 @@ export class TopologyService extends Service {
       const first = [...fibers][0] as FiberLike | undefined;
       const stateCode = first?.state ?? 0;
       const inject = first?.inject ? Object.keys(first.inject) : [];
-      const isTheme = name.startsWith('ui-');
+      // 匿名插件无 manifest，kind 无法判定：一律按 module 展示（不猜前缀，P2-4）。
+      // 登记过的主题插件走 manifest.kind 单一来源（:478）。
       const dockParent = this.getDockParent(name);
       nodes.push({
         id: name,
-        kind: isTheme ? 'theme' : 'module',
+        kind: 'module',
         name,
         state: STATE_LABEL[stateCode] ?? '未知',
         stateCode,

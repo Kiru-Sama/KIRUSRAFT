@@ -11,3 +11,6 @@ android/build/
 # 本地
 *.local
 .DS_Store
+
+# 过程缓存（调试脚本/中间产物，不入库）
+过程缓存/

@@ -35,6 +35,8 @@ export interface ChatElements {
   onSessionChange?: (id: string) => void;
   /** 流结束回调（成功/错误/中止后触发一次；GUI 可用于 Markdown 全量渲染等收尾） */
   onStreamEnd?: () => void;
+  /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
+  onLengthWarn?: (count: number, confirm: () => void) => void;
 }
 
 export interface ChatController {
@@ -54,6 +56,20 @@ export interface ChatController {
   dispose(): void;
 }
 
+/** 对话文本总长上限：超过时发送前提醒（APITOOL 同款逻辑，只算文本消息，不含图片/文件） */
+export const MAX_CONTEXT_CHARS = 100000;
+
+/** 统计会话对话文本总字符数（只算 text 部件，image 部件不计——文件不塞进对话） */
+export function countContextChars(session: Session): number {
+  let total = 0;
+  for (const node of session.node?.messages ?? []) {
+    for (const part of node.parts ?? []) {
+      if (part.type === 'text') total += part.text.length;
+    }
+  }
+  return total;
+}
+
 export function createChatController(ctx: Context, els: ChatElements): ChatController {
   let session: Session = createSession();
   let loaded = false;
@@ -64,11 +80,20 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   let streamToken = 0;
   /** 切换序号：latest-wins，过期切换结果丢弃（M3） */
   let switchSeq = 0;
+  /** 已确认超长继续发送（用户点提醒的确定后置真；发送成功后复位） */
+  let lengthConfirmed = false;
 
+  /** 切换会话进行中标记：await 读 IDB 期间拒绝发送，避免用户消息写进旧会话（P2-8） */
+  let switchingSession = false;
+
+  /** 保存会话（串行队列：上一次保存完成后再保存下一次，避免并发 put 旧数据覆盖新数据 P2-19） */
+  let saveQueue: Promise<void> = Promise.resolve();
   function saveSessionSafe(): void {
-    void ctx.storage.saveConversation(session).catch((error) => {
-      logger.error('storage', `保存会话失败: ${String(error)}`);
-    });
+    saveQueue = saveQueue
+      .then(() => ctx.storage.saveConversation(session))
+      .catch((error) => {
+        logger.error('storage', `保存会话失败: ${String(error)}`);
+      });
   }
 
   /**
@@ -95,6 +120,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   async function switchSession(id: string): Promise<void> {
     if (disposed) return;
     const seq = ++switchSeq;
+    switchingSession = true; // P2-8：await 窗口内拒绝发送，避免写进旧会话
     // 中止进行中的流并立即落盘旧会话，避免切换后 AI 回复串写到新会话
     if (abortCtrl) {
       abortCtrl.abort();
@@ -120,6 +146,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       logger.info('gui', `已切换到会话 ${id}（${session.node.messages.length} 条消息）`);
     } catch (error) {
       logger.error('storage', `切换会话失败: ${String(error)}`);
+    } finally {
+      switchingSession = false;
     }
   }
 
@@ -170,7 +198,11 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   /** 发送前置校验：返回可发送的文本（空串=不可发，原因已写入状态栏）。regenerate 截断前必须先过此关（P1-1：避免校验失败时数据已删） */
   function validateSend(text: string): boolean {
-    if (disposed || streaming) return false;
+    if (disposed || streaming || switchingSession) {
+      // P2-8：切换会话进行中拒绝发送（避免写进旧会话）
+      if (switchingSession) els.status.textContent = '正在切换会话...';
+      return false;
+    }
     if (!loaded) {
       els.status.textContent = '正在加载会话...';
       return false;
@@ -190,12 +222,35 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       els.onRequireSettings?.();
       return false;
     }
+    // 对话文本总长检查（不含图片/文件）：超 100k 拦截，弹右上角确认；点确定后重发
+    const totalChars = countContextChars(session);
+    if (totalChars > MAX_CONTEXT_CHARS && !lengthConfirmed) {
+      els.status.textContent = `内容过长：约 ${totalChars.toLocaleString()} 字符（上限 100,000）`;
+      logger.warn('gui', `发送被拦截：上下文超长（${totalChars} 字符），等待确认`);
+      return false;
+    }
     return true;
   }
 
   /** 发送一段文本（send 读输入框，regenerate 复用历史文本）；clearInput 控制是否清空输入框 */
   async function sendText(text: string, clearInput = true): Promise<void> {
-    if (!validateSend(text)) return;
+    if (!validateSend(text)) {
+      // 若因超长被拦截（且未确认过），弹右上角确认；点确定置标记后重发
+      const totalChars = countContextChars(session);
+      if (totalChars > MAX_CONTEXT_CHARS && !lengthConfirmed) {
+        els.onLengthWarn?.(totalChars, () => {
+          lengthConfirmed = true;
+          void sendText(text, clearInput);
+        });
+      } else {
+        // 失败原因不是超长（apiKey/服务商/加载态/切换中）：复位确认标记，
+        // 避免点确定后重发又失败，导致下次超长永久放行（P2-7）
+        lengthConfirmed = false;
+      }
+      return;
+    }
+    // 真正开始发送：复位超长确认标记（下次超长需重新确认）
+    lengthConfirmed = false;
 
     streaming = true;
     const token = ++streamToken;
@@ -262,6 +317,10 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.status.textContent = '';
           },
           onError: (error) => {
+            // 首个文本增量前报错：移除空白气泡（未落盘、session 无记录），避免残留（P2-6）
+            if (!aiAppended) {
+              aiBubble.remove();
+            }
             els.status.textContent = `错误: ${error.message}`;
             logger.error('api', error.message);
           },
@@ -300,6 +359,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.status.textContent = '已中止';
     els.send.style.display = '';
     els.stop.style.display = 'none';
+    // P2-5：手动中止也算流结束，触发收尾（Markdown 渲染等），与 finally 分支行为一致
+    els.onStreamEnd?.();
     saveSessionSafe();
   }
 

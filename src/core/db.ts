@@ -137,6 +137,7 @@ export class Db {
       const req = tx.objectStore(store).get(key);
       req.onsuccess = () => resolve(req.result as T | undefined);
       req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error); // P2-17：补事务级错误，避免请求错误被吞
       tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
@@ -149,6 +150,7 @@ export class Db {
       const req = tx.objectStore(store).getAll();
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error); // P2-17
       tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }
@@ -161,6 +163,7 @@ export class Db {
       const req = tx.objectStore(store).index(index).getAll(value);
       req.onsuccess = () => resolve(req.result as T[]);
       req.onerror = () => reject(req.error);
+      tx.onerror = () => reject(tx.error); // P2-17
       tx.onabort = () => reject(tx.error ?? new Error('事务中止'));
     });
   }

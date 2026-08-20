@@ -10,10 +10,9 @@
  * 入口统一走 'kernel-gui:open' 事件（由当前激活的 GUI 提供唯一入口按钮）。
  */
 import { Context } from '@deepseek-ai/cordis';
-import { logger } from '../core/logger';
+import { logger, filterByRange, renderEntry, type LogRange } from '../core/logger';
 import { createSession } from '../core/session';
 import { VERSION as CURRENT_VERSION } from '../core/version';
-import { GUI_THEMES } from '../core/gui-registry';
 import type { TopologyNode } from '../core/topology';
 import type { PluginManifest } from '../core/manifest';
 
@@ -36,12 +35,6 @@ type Tab = (typeof TABS)[number];
 
 /** 功能开关页按 manifest.group 的功能区排序 */
 const GROUP_ORDER: string[] = ['基础', '界面', '主题', '服务商', '工具'];
-
-/** 插件 → 配置分节映射（卡片"设置"跳到外观页对应分节；无分节的插件按钮置灰） */
-const CONFIG_SECTION_BY_PLUGIN: Record<string, string> = {
-  'provider-deepseek': 'profile',
-  'ui-exdark': 'ui',
-};
 
 interface RuntimeLike {
   name?: string;
@@ -170,6 +163,8 @@ export function apply(ctx: Context): void {
   panel.style.cssText = 'position:fixed;inset:0;z-index:60;display:none;flex-direction:column;';
 
   let activeTab: Tab = '首页';
+  /** 运行记录日志导出范围（默认今天，防几天日志一次混抄） */
+  let logRange: LogRange = 'today';
   /** 就地展开的插件卡（accordion 状态） */
   let expanded = new Set<string>();
   /** "设置"按钮跳转：渲染完成后滚动到该配置分节 */
@@ -197,9 +192,9 @@ export function apply(ctx: Context): void {
     return [...perms];
   }
 
-  /** 插件是否有对应配置分节（决定"设置"按钮可用） */
+  /** 插件是否有对应配置分节（决定"设置"按钮可用；读 manifest.configSection，不硬编码） */
   function hasConfigSection(id: string): boolean {
-    const ns = CONFIG_SECTION_BY_PLUGIN[id];
+    const ns = ctx.topology.getManifest(id)?.configSection;
     return !!ns && ctx.config.list().some((s) => s.namespace === ns);
   }
 
@@ -380,15 +375,18 @@ export function apply(ctx: Context): void {
       const active = id === activeThemeId;
       return `<button type="button" class="kg-btn mini${active ? '' : ' ghost'}" data-ktheme="${esc(id)}">${esc(label)}</button>`;
     };
-    const themes =
-      Object.entries(GUI_THEMES)
-        .map(([id, meta]) => themeBtn(id, meta.label))
+    // 主题按钮来源 = topology 登记表里 kind==='ui-theme' 的 manifest（单一来源，不硬编码）
+    const themeButtons =
+      ctx.topology
+        .listManifests()
+        .filter((m) => m.kind === 'ui-theme')
+        .map((m) => themeBtn(m.name, m.label.zh))
         .join('') + themeBtn('', '默认');
     return `
       <div class="kg-section">
         <h3>主题</h3>
         <div class="kg-text" style="margin-bottom:10px;">Exdark：深黑底 + 青绿强调 + 橙影 + 全直角。选「默认」恢复兜底界面。</div>
-        <div class="kg-row">${themes}</div>
+        <div class="kg-row">${themeButtons}</div>
       </div>
       <div class="kg-section">
         <h3>配置</h3>
@@ -409,21 +407,23 @@ export function apply(ctx: Context): void {
   }
 
   /** 运行记录页：日志查看 + 清空 */
+  /** 运行记录页：日志查看（按范围过滤防几天日志混抄）+ 复制/导出/清空 */
   function renderLogs(): string {
-    const entries = logger.getLogs();
+    const entries = filterByRange(logger.getLogs(), logRange);
+    const rangeBtn = (r: LogRange, label: string) =>
+      `<button type="button" class="kg-btn${logRange === r ? '' : ' ghost'}" data-klogrange="${r}">${label}</button>`;
     return `
       <div class="kg-fill">
         <div class="kg-log-head">
           <span class="kg-text">运行记录（${entries.length} 条）</span>
+          <span class="kg-logrange">${rangeBtn('today', '今天')}${rangeBtn('3d', '3天')}${rangeBtn('all', '全部')}</span>
+          <button type="button" class="kg-btn" data-kcopylog>复制</button>
+          <button type="button" class="kg-btn" data-kexportlog>导出</button>
           <button type="button" class="kg-btn danger" data-kclearlog>清空</button>
         </div>
         <div class="kg-log">${
           entries
-            .map((e) => {
-              const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
-              const ver = e.version ? `[v${e.version}] ` : '';
-              return `[${t}] ${ver}${esc(e.level.toUpperCase())} [${esc(e.source)}] ${esc(e.message)}`;
-            })
+            .map((e) => renderEntry(e))
             .join('\n') || '（暂无日志）'
         }</div>
       </div>`;
@@ -447,8 +447,11 @@ export function apply(ctx: Context): void {
   }
 
   function renderPanel(): void {
-    const fill = activeTab === '运行记录';
-    panel.innerHTML = `
+    void (async () => {
+      // 运行记录页打开前从 IDB 刷新快照（异步）：保证日志最新，渲染仍同步
+      if (activeTab === '运行记录') await logger.refresh();
+      const fill = activeTab === '运行记录';
+      panel.innerHTML = `
       <style>${STYLE}</style>
       <div class="kg-header">
         <div>
@@ -474,6 +477,7 @@ export function apply(ctx: Context): void {
         requestAnimationFrame(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       }
     }
+    })();
   }
 
   function bindEvents(): void {
@@ -494,6 +498,20 @@ export function apply(ctx: Context): void {
     panel.querySelector('[data-kclearlog]')?.addEventListener('click', () => {
       logger.clear();
       renderPanel();
+    });
+
+    // 日志范围切换 / 复制 / 导出
+    panel.querySelectorAll<HTMLElement>('[data-klogrange]').forEach((el) => {
+      el.addEventListener('click', () => {
+        logRange = el.dataset.klogrange as LogRange;
+        renderPanel();
+      });
+    });
+    panel.querySelector('[data-kcopylog]')?.addEventListener('click', () => {
+      void logger.copy(logRange);
+    });
+    panel.querySelector('[data-kexportlog]')?.addEventListener('click', () => {
+      logger.download(logRange);
     });
 
     // 首页：检查更新
@@ -560,7 +578,7 @@ export function apply(ctx: Context): void {
         e.stopPropagation();
         const id = el.dataset.kgsettings;
         if (!id) return;
-        const ns = CONFIG_SECTION_BY_PLUGIN[id];
+        const ns = ctx.topology.getManifest(id)?.configSection;
         if (!ns || !ctx.config.list().some((s) => s.namespace === ns)) return;
         activeTab = '外观';
         pendingScrollNs = ns;

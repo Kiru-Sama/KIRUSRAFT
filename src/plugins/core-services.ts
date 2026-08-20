@@ -21,7 +21,7 @@ export const manifest: PluginManifest = {
   label: { zh: '核心服务', en: 'Core Services' },
   group: '基础',
   protected: true,
-  provide: ['tools', 'providers', 'config', 'storage', 'topology'],
+  provide: ['tools', 'providers', 'config', 'storage', 'topology', 'rate'],
   description: '内核抽象层服务装配：工具注册表、服务商注册表、配置中心、存储、拓扑',
   apply,
 };

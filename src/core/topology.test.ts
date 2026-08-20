@@ -79,3 +79,57 @@ describe('topology 插件列表完整性', () => {
     expect(node.state).toBe('等待');
   });
 });
+
+describe('ensureGuiIfNeeded 崩溃恢复判定', () => {
+  it('无 ACTIVE 主题 GUI 时拉应急控制台（禁用主题后崩溃）', async () => {
+    const ctx = new Context();
+    new TopologyService(ctx);
+    const svc = ctx.topology;
+    // 只登记主题（未挂载 = 无 ACTIVE 主题 GUI）
+    svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
+    svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
+    const r = await svc.ensureGuiIfNeeded();
+    expect(r.ok).toBe(true);
+    // fallback-gui 应被拉起（stateCode=2）
+    const topo = svc.getTopology();
+    const fb = topo.nodes.find((n) => n.id === 'fallback-gui')!;
+    expect(fb.stateCode).toBe(2);
+    await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
+  });
+
+  it('有 ACTIVE 主题 GUI 时不拉应急控制台（主题正常，无关错误不切界面）', async () => {
+    const ctx = new Context();
+    new TopologyService(ctx);
+    const svc = ctx.topology;
+    svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
+    svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
+    // 挂载主题 → ACTIVE
+    const themePlugin: Plugin.Object = { name: 'ui-exdark', apply: () => undefined };
+    await ctx.plugin(themePlugin);
+    const r = await svc.ensureGuiIfNeeded();
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain('无需切换');
+    // fallback-gui 不应被拉起
+    const topo = svc.getTopology();
+    expect(topo.nodes.find((n) => n.id === 'fallback-gui')!.stateCode).not.toBe(2);
+    await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
+  });
+
+  it('禁用当前主题后应急控制台被拉起（缓存竞态修复：togglePlugin→ensureGui 路径）', async () => {
+    const ctx = new Context();
+    new TopologyService(ctx);
+    const svc = ctx.topology;
+    svc.registerPlugin('ui-exdark', fakeManifest('ui-exdark', { kind: 'ui-theme', providesGui: true }));
+    svc.registerPlugin('fallback-gui', fakeManifest('fallback-gui', { kind: 'gui', protected: true }));
+    // 挂载主题 → ACTIVE，且生成过拓扑缓存（竞态前提：旧快照可能残留）
+    await ctx.plugin({ name: 'ui-exdark', apply: () => undefined } as Plugin.Object);
+    expect(svc.getTopology().nodes.find((n) => n.id === 'ui-exdark')!.stateCode).toBe(2);
+    // 禁用主题：togglePlugin 内必须先失效缓存再 ensureGui，否则读到旧快照 hasGui=true → 白屏
+    const r = await svc.togglePlugin('ui-exdark');
+    expect(r.ok).toBe(true);
+    const topo = svc.getTopology();
+    expect(topo.nodes.find((n) => n.id === 'ui-exdark')!.stateCode).toBe(4);
+    expect(topo.nodes.find((n) => n.id === 'fallback-gui')!.stateCode).toBe(2);
+    await (ctx as never as { fiber: { dispose(): Promise<void> } }).fiber.dispose();
+  });
+});

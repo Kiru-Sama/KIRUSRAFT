@@ -22,7 +22,6 @@ export const manifest: PluginManifest = {
   description: '检测新版本（GitHub releases）+ 下载 APK',
   apply,
 };
-
 const REPO_OWNER = 'Kiru-Sama';
 const REPO_NAME = 'KIRUSRAFT';
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;

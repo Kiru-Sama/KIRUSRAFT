@@ -112,8 +112,10 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
-  // 工具参数缓存：多个 delta 片段累积
+  // 工具参数缓存：多个 delta 片段累积（idx → args 字符串）
   const toolArgs = new Map<string, string>();
+  // 工具元信息：idx → { id, name }（name 只在首个 chunk 出现，需记录供流结束后统一触发）
+  const toolMeta = new Map<string, { id: string; name: string }>();
 
   // 空闲超时：60s 无数据则中止
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,8 +142,18 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
         if (!trimmed) continue;
         const ev = parseSseEvent(trimmed);
         if (!ev || ev.data === null) continue;
-        dispatch(ev.data, handlers, toolArgs);
+        dispatch(ev.data, handlers, toolArgs, toolMeta);
       }
+    }
+    // 流结束：统一触发累积完整的工具调用（参数跨多个 chunk 分片，只有结束时才完整）
+    for (const [idx, meta] of toolMeta) {
+      const full = toolArgs.get(idx) ?? '';
+      handlers.onToolCall({
+        id: meta.id,
+        name: meta.name,
+        args: full.length > 0 ? safeParse(full) : {},
+        rawArguments: full.length > 0 ? full : undefined,
+      });
     }
     handlers.onDone();
   } catch (error) {
@@ -158,7 +170,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatStreamHandl
 }
 
 /** 事件分发（OpenAI chat/completions chunk） */
-function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<string, string>): void {
+function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<string, string>, toolMeta: Map<string, { id: string; name: string }>): void {
   if (typeof data !== 'object' || data === null) return;
   const record = data as Record<string, unknown>;
   const choices = record.choices;
@@ -169,7 +181,7 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<str
   if (typeof delta.reasoning_content === 'string') handlers.onReasoningDelta(delta.reasoning_content);
   if (typeof delta.reasoning === 'string') handlers.onReasoningDelta(delta.reasoning);
   if (typeof delta.content === 'string' && delta.content.length > 0) handlers.onTextDelta(delta.content);
-  // 工具调用
+  // 工具调用：只累积（参数分片跨 chunk），流结束统一触发（避免 args 只取到首片）
   const toolCalls = delta.tool_calls;
   if (Array.isArray(toolCalls)) {
     for (const tc of toolCalls) {
@@ -183,12 +195,8 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<str
       const prev = toolArgs.get(idx) ?? '';
       toolArgs.set(idx, prev + args);
       if (name) {
-        handlers.onToolCall({
-          id,
-          name,
-          args: args.length > 0 ? safeParse(args) : {},
-          rawArguments: args.length > 0 ? args : undefined,
-        });
+        // 首个带 name 的 chunk：记录元信息（后续纯参数分片 name 为空，不重复触发）
+        toolMeta.set(idx, { id, name });
       }
     }
   }

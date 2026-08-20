@@ -31,10 +31,20 @@ export class StorageService extends Service {
         ],
       },
     ]);
-    // 打开失败时降级为内存模式（会话仅本次有效），不静默失效
+    // 打开失败时降级为内存模式（会话仅本次有效），不静默失效；2s 后重试一次（P2-18），
+    // 成功则退出内存模式（后续读写走 IDB）
     this.ready = this.db.open().catch((error) => {
       this.memoryFallback = true;
       logger.warn('storage', `IndexedDB 不可用，会话仅保存在内存: ${String(error)}`);
+      // 重试一次：临时故障（如存储被占用）恢复后能自动切回持久化
+      setTimeout(() => {
+        this.db.open().then(() => {
+          this.memoryFallback = false;
+          logger.info('storage', 'IndexedDB 重试成功，恢复持久化');
+        }).catch(() => {
+          /* 重试仍失败：保持内存模式 */
+        });
+      }, 2000);
     });
   }
 

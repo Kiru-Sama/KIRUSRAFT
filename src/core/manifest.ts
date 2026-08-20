@@ -31,6 +31,8 @@ export interface PluginManifest {
   configSchema?: StandardSchemaV1<any, any>;
   /** 是否自带完整 GUI（主题插件的 GUI 仲裁用；true = 进软件直接进该主题） */
   providesGui?: boolean;
+  /** 插件对应的配置分节 namespace（"设置"按钮跳转用；随插件声明，不硬编码在 UI） */
+  configSection?: string;
   /** 是否受保护（禁用会破坏内核/兜底，需二次确认） */
   protected?: boolean;
   /** 一句话描述（插件管理 UI 可选展示） */
@@ -48,4 +50,14 @@ export function toCordisPlugin(m: PluginManifest) {
     provide: m.provide,
     Config: m.configSchema,
   };
+}
+
+/** 是否主题插件（单一来源：只认 manifest.kind，不用名字前缀猜） */
+export function isThemePlugin(m: PluginManifest | undefined): boolean {
+  return m?.kind === 'ui-theme';
+}
+
+/** 主题是否自带完整 GUI（GUI 仲裁用；只认 manifest.providesGui） */
+export function isGuiThemePlugin(m: PluginManifest | undefined): boolean {
+  return isThemePlugin(m) && (m?.providesGui ?? false);
 }

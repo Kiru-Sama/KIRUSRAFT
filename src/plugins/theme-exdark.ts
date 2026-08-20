@@ -14,7 +14,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { createChatController } from '../core/chat-controller';
 import { createSession } from '../core/session';
-import { logger } from '../core/logger';
+import { logger, filterByRange, renderEntry, type LogRange } from '../core/logger';
 import { defineSchema } from '../core/schema';
 import type { UIMessagePart, Message } from '../core/types';
 import type { PluginManifest } from '../core/manifest';
@@ -23,7 +23,7 @@ export const name = 'ui-exdark';
 /** UI 主题插件元数据：可运行时切换的主题 */
 export const kind = 'ui-theme';
 /** 依赖的内核服务（不声明 inject 会解析不到服务，主题永远挂载失败） */
-export const inject = ['providers', 'tools', 'config', 'storage', 'topology'];
+export const inject = ['providers', 'tools', 'config', 'storage', 'topology', 'rate'];
 
 export const manifest: PluginManifest = {
   name,
@@ -32,6 +32,7 @@ export const manifest: PluginManifest = {
   group: '主题',
   inject,
   providesGui: true,
+  configSection: 'ui',
   // 配置 schema 样板：挂载时 Cordis 自动校验（enabled 非布尔即 FAILED）并归一（缺省补默认值）
   configSchema: defineSchema<Config>((value) => {
     const raw = (typeof value === 'object' && value !== null ? value : {}) as Partial<Config>;
@@ -423,6 +424,9 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-plugin-tag { display:inline-block; padding:1px 8px; font-size:10px; border:2px solid var(--ex-border2); color:var(--ex-accent); margin-right:6px; }
 /* Toast（APITOOL .toast 右上角滑入） */
 .ex-toast-container { position:fixed; top:16px; right:16px; z-index:9999; pointer-events:none; }
+/* 超长确认 toast：右上角、橙色描边、带确定按钮 */
+.ex-toast-confirm { border-color:var(--ex-accent2) !important; }
+.ex-toast-confirm .ex-toast-btn { margin-left:10px; padding:3px 12px; background:var(--ex-accent2); color:var(--ex-bg); border:none; font-weight:900; cursor:pointer; font-family:var(--ex-font); font-size:11px; }
 .ex-toast { background:var(--ex-surface); border:3px solid var(--ex-accent); padding:10px 16px; box-shadow:var(--ex-shadow); font-weight:bold; margin-bottom:8px; animation:exToastIn .3s ease; pointer-events:auto; font-size:12px; color:var(--ex-text); font-family:var(--ex-font); }
 @keyframes exToastIn { from{transform:translateX(100px);opacity:0;} to{transform:translateX(0);opacity:1;} }
 /* 移动端：设置弹窗 130px 侧栏导航 → 顶部横滑标签栏（APITOOL V8.3.2o） */
@@ -654,8 +658,15 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           </div>
           <div class="ex-section" id="sec-logs">
             <h3>运行记录（日志）</h3>
-            <div class="ex-hint">应用运行日志（含错误与警告），已持久化，崩溃后可查。</div>
-            <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div class="ex-hint">应用运行日志（含错误与警告），已持久化，崩溃后可查；默认只看今天，防几天日志一次混抄。</div>
+            <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+              <span class="ex-logrange" data-ex="logRange" style="display:flex;gap:0;">
+                <button type="button" class="ex-top-btn active" data-ex-range="today">今天</button>
+                <button type="button" class="ex-top-btn" data-ex-range="3d">3天</button>
+                <button type="button" class="ex-top-btn" data-ex-range="all">全部</button>
+              </span>
+              <button type="button" class="ex-top-btn" data-ex="logCopy">复制</button>
+              <button type="button" class="ex-top-btn" data-ex="logExport">导出</button>
               <button type="button" class="ex-top-btn" data-ex="logRefresh">刷新</button>
               <button type="button" class="ex-top-btn" data-ex="logClear">清空</button>
             </div>
@@ -716,11 +727,16 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const settingsSaveBtn = container.querySelector('[data-ex="settingsSave"]') as HTMLButtonElement;
   const logRefreshBtn = container.querySelector('[data-ex="logRefresh"]') as HTMLButtonElement;
   const logClearBtn = container.querySelector('[data-ex="logClear"]') as HTMLButtonElement;
+  const logCopyBtn = container.querySelector('[data-ex="logCopy"]') as HTMLButtonElement;
+  const logExportBtn = container.querySelector('[data-ex="logExport"]') as HTMLButtonElement;
+  const logRangeEl = container.querySelector('[data-ex="logRange"]') as HTMLElement;
   const logView = container.querySelector('[data-ex="logView"]') as HTMLElement;
+  /** 运行记录日志导出范围（默认今天，防几天日志一次混抄） */
+  let logRange: LogRange = 'today';
   const parallaxSlider = container.querySelector('[data-ex="parallaxSlider"]') as HTMLInputElement;
   const parallaxValueEl = container.querySelector('[data-ex="parallaxValue"]') as HTMLElement;
 
-  // ---- Toast（APITOOL .toast 右上角滑入） ----
+  /** 右上角 toast（APITOOL 同款） */
   function showToast(msg: string): void {
     if (!toastContainer) return;
     const t = document.createElement('div');
@@ -729,18 +745,33 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     toastContainer.appendChild(t);
     window.setTimeout(() => t.remove(), 2200);
   }
+  /** 超长确认 toast：右上角带确定按钮；点确定触发 confirm 回调（controller 置标记后重发） */
+  function confirmOversize(count: number, confirm: () => void): void {
+    if (!toastContainer) return;
+    const t = document.createElement('div');
+    t.className = 'ex-toast ex-toast-confirm';
+    const span = document.createElement('span');
+    span.textContent = `对话内容过长（约 ${count.toLocaleString()} 字符，上限 100,000）。`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ex-toast-btn';
+    btn.textContent = '确定发送';
+    btn.addEventListener('click', () => {
+      t.remove();
+      confirm();
+    });
+    t.appendChild(span);
+    t.appendChild(btn);
+    toastContainer.appendChild(t);
+    window.setTimeout(() => t.remove(), 8000);
+  }
   function renderLogView(): void {
-    if (!logView) return;
-    const entries = logger.getLogs();
-    logView.textContent = entries
-      .map((e) => {
-        const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
-        const lv = e.level.toUpperCase().padEnd(5);
-        const ver = e.version ? `[v${e.version}] ` : '';
-        return `[${t}] ${ver}${lv} [${e.source}] ${e.message}`;
-      })
-      .join('\n');
-    logView.scrollTop = logView.scrollHeight;
+    void (async () => {
+      if (!logView) return;
+      const entries = filterByRange(await logger.getLogsAsync(), logRange);
+      logView.textContent = entries.map((e) => renderEntry(e)).join('\n');
+      logView.scrollTop = logView.scrollHeight;
+    })();
   }
 
   function openSettings(tab?: string): void {
@@ -1285,6 +1316,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     stop: stopEl,
     status: statusEl,
     webSearch: webSearchEl,
+    // 对话超 100k 字符：右上角确认 toast（带"确定发送"按钮），点确定后放行
+    onLengthWarn: (count, confirm) => {
+      confirmOversize(count, confirm);
+    },
     renderMessage: (role: 'user' | 'ai', parts: UIMessagePart[], message?: Message): HTMLElement => {
       const bubble = document.createElement('div');
       bubble.className = `ex-message ex-${role}`;
@@ -1690,12 +1725,32 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     settingsCancelBtn.addEventListener('click', closeSettings);
     settingsSaveBtn.addEventListener('click', () => showToast('功能开发中：保存设置'));
 
-    // 运行记录（日志）：刷新 / 清空（读持久化日志，logger 已落盘 localStorage）
+    // 运行记录（日志）：范围切换 / 刷新 / 复制 / 导出 / 清空
+    logRangeEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-ex-range]') as HTMLElement | null;
+      if (!btn) return;
+      logRange = btn.dataset.exRange as LogRange;
+      logRangeEl.querySelectorAll('[data-ex-range]').forEach((b) => b.classList.toggle('active', b === btn));
+      renderLogView();
+    });
     logRefreshBtn.addEventListener('click', renderLogView);
     logClearBtn.addEventListener('click', () => {
       logger.clear();
       renderLogView();
     });
+    logCopyBtn.addEventListener('click', () => {
+      void logger.copy(logRange).then((ok) => {
+        showToast(ok ? `已复制${logRangeLabel(logRange)}日志到剪贴板` : '复制失败，请用导出下载文件');
+      });
+    });
+    logExportBtn.addEventListener('click', () => {
+      logger.download(logRange);
+      showToast(`已导出${logRangeLabel(logRange)}日志文件`);
+    });
+
+    function logRangeLabel(range: LogRange): string {
+      return range === 'today' ? '今天' : range === '3d' ? '最近3天' : '全部';
+    }
 
     // 异常红点：有 FAILED 插件时更多按钮显示（点设置→插件管理查看）
     const updateDot = () => {

@@ -22,6 +22,7 @@ export const manifest: PluginManifest = {
   label: { zh: '服务商预设', en: 'Provider Presets' },
   group: '服务商',
   inject,
+  configSection: 'profile',
   description: '官方 + 中转站服务商预设：DeepSeek/OpenAI/Claude/Gemini/智谱/通义/豆包等（附密钥购买链接）',
   apply,
 };

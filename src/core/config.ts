@@ -36,7 +36,11 @@ export class ConfigService extends Service {
    */
   register(ctx: Context, section: ConfigSection): () => void {
     if (this.sections.has(section.namespace)) {
-      throw new Error(`配置分节 "${section.namespace}" 已注册`);
+      // P2-9：重复注册不抛错（双挂载/重复 bootstrap 场景会直接 throw 导致插件 FAILED），
+      // 改为警告 + 返回 no-op disposer，保持降级不崩
+      // eslint-disable-next-line no-console
+      console.warn(`[config] 配置分节 "${section.namespace}" 已注册，忽略重复注册`);
+      return () => undefined;
     }
     this.sections.set(section.namespace, section);
     // 加载持久化值，合并默认
@@ -55,6 +59,12 @@ export class ConfigService extends Service {
 
   /** 写配置：与 defaults 合并（防止部分写入丢字段）+ 持久化 + 通知监听者 */
   set(namespace: string, value: Record<string, unknown>): void {
+    // P2-10：未注册 namespace 的写入是幽灵键（插件卸载后残留），warn 提示开发期可发现；
+    // 不拒绝——时序上可能存在 set 先于 register（如 docking 懒加载），拒绝会丢数据。
+    if (!this.sections.has(namespace)) {
+      // eslint-disable-next-line no-console
+      console.warn(`[config] 写入未注册配置分节 "${namespace}"，可能残留幽灵键`);
+    }
     const merged = { ...(this.sections.get(namespace)?.defaults ?? {}), ...value };
     this.values.set(namespace, merged);
     this.persist(namespace, merged);

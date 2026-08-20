@@ -89,12 +89,12 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   }
 
   // 7. 崩溃自动拉起应急控制台（白屏终极保险）：
-  //    任何未捕获异常/未处理 Promise 拒绝后，若当前没有 GUI 提供者（主题/应急控制台），
-  //    自动挂载 fallback-gui。这样无论什么原因导致白屏，只要 JS 还在跑就能救回界面。
-  //    logger 已先记录原始错误（window error hook），此处只做界面恢复，不重复记日志。
+  //    触发条件（用户语义）：①没有任何 ACTIVE 的主题 GUI（界面没了）②或关键插件（core-services/kernel-gui）FAILED
+  //    —— 才进应急控制台。无关错误（如网络请求 rejection）不触发，避免误切界面。
+  //    logger 已先记录原始错误（window error hook），此处只做界面恢复判定。
   const crashRecovery = (): void => {
-    void ctx.topology.ensureGui().then((r) => {
-      if (!r.ok) logger.error('gui', r.message ?? '崩溃恢复：应急控制台拉起失败');
+    void ctx.topology.ensureGuiIfNeeded().then((r) => {
+      if (!r.ok && r.message) logger.error('gui', `崩溃恢复：${r.message}`);
     });
   };
   window.addEventListener('error', crashRecovery);

@@ -5,7 +5,7 @@
  * 属内核本体（受保护），不依赖任何 UI 插件，自包含实现。
  */
 import { Context } from '@deepseek-ai/cordis';
-import { logger } from '../core/logger';
+import { logger, filterByRange, renderEntry, type LogRange } from '../core/logger';
 import { VERSION } from '../core/version';
 import type { PluginManifest } from '../core/manifest';
 
@@ -103,6 +103,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       </div>
       <div data-fg-view="logs" style="display:none;">
         <div class="fg-logbar">
+          <span class="fg-logrange" data-fg="logRange">
+            <button type="button" class="fg-btn active" data-fg-range="today">今天</button>
+            <button type="button" class="fg-btn" data-fg-range="3d">3天</button>
+            <button type="button" class="fg-btn" data-fg-range="all">全部</button>
+          </span>
+          <button type="button" class="fg-btn" data-fg="logCopy">复制</button>
+          <button type="button" class="fg-btn" data-fg="logExport">导出</button>
           <button type="button" class="fg-btn" data-fg="logRefresh">刷新</button>
           <button type="button" class="fg-btn danger" data-fg="logClear">清空日志</button>
         </div>
@@ -121,6 +128,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   };
   const logRefreshBtn = container.querySelector('[data-fg="logRefresh"]') as HTMLButtonElement;
   const logClearBtn = container.querySelector('[data-fg="logClear"]') as HTMLButtonElement;
+  const logCopyBtn = container.querySelector('[data-fg="logCopy"]') as HTMLButtonElement;
+  const logExportBtn = container.querySelector('[data-fg="logExport"]') as HTMLButtonElement;
+  const logRangeEl = container.querySelector('[data-fg="logRange"]') as HTMLElement;
+  let logRange: LogRange = 'today';
 
   /** 渲染插件列表（应急控制：启停 + 状态） */
   function renderPlugins(): void {
@@ -166,16 +177,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .join('');
   }
 
-  /** 渲染日志（读持久化日志；每条带产生它的版本号，白屏排障可溯源） */
-  function renderLogs(): void {
-    const entries = logger.getLogs();
+  /** 渲染日志（读持久化日志；每条带产生它的版本号，白屏排障可溯源；按范围过滤防几天日志混抄） */
+  async function renderLogs(): Promise<void> {
+    const entries = filterByRange(await logger.getLogsAsync(), logRange);
     logBodyEl.textContent = entries
-      .map((e) => {
-        const t = new Date(e.time).toLocaleTimeString('zh-CN', { hour12: false });
-        const lv = e.level.toUpperCase().padEnd(5);
-        const ver = e.version ? `[v${e.version}] ` : '';
-        return `[${t}] ${ver}${lv} [${e.source}] ${e.message}`;
-      })
+      .map((e) => renderEntry(e))
       .join('\n') || '（暂无日志）';
     logBodyEl.scrollTop = logBodyEl.scrollHeight;
   }
@@ -185,7 +191,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     tabBtns.forEach((b) => b.classList.toggle('active', b.dataset.fgTab === name));
     views.plugins.style.display = name === 'plugins' ? 'block' : 'none';
     views.logs.style.display = name === 'logs' ? 'block' : 'none';
-    if (name === 'logs') renderLogs();
+    if (name === 'logs') void renderLogs();
     if (name === 'plugins') renderPlugins();
   };
   tabBtns.forEach((b) => b.addEventListener('click', () => switchView((b.dataset.fgTab as 'plugins' | 'logs') ?? 'plugins')));
@@ -215,11 +221,31 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     void doToggle();
   });
 
-  logRefreshBtn.addEventListener('click', renderLogs);
+  logRefreshBtn.addEventListener('click', () => void renderLogs());
   logClearBtn.addEventListener('click', () => {
     logger.clear();
-    renderLogs();
+    void renderLogs();
   });
+  logCopyBtn.addEventListener('click', () => {
+    void logger.copy(logRange).then((ok) => {
+      logBodyEl.textContent = ok ? `已复制 ${logRangeLabel(logRange)}日志到剪贴板` : '复制失败（剪贴板不可用），请用导出下载文件';
+    });
+  });
+  logExportBtn.addEventListener('click', () => {
+    logger.download(logRange);
+    logBodyEl.textContent = `已导出 ${logRangeLabel(logRange)}日志文件`;
+  });
+  logRangeEl.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-fg-range]') as HTMLElement | null;
+    if (!btn) return;
+    logRange = btn.dataset.fgRange as LogRange;
+    logRangeEl.querySelectorAll('[data-fg-range]').forEach((b) => b.classList.toggle('active', b === btn));
+    void renderLogs();
+  });
+
+  function logRangeLabel(range: LogRange): string {
+    return range === 'today' ? '今天' : range === '3d' ? '最近3天' : '全部';
+  }
 
   logger.info('gui', '应急控制台已挂载');
   renderPlugins();
