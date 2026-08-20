@@ -52,6 +52,9 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   ctx.config.register(ctx, { namespace: 'ui', displayName: '界面', defaults: { theme: 'ui-exdark' } });
   // docking 配置分节：空间站贴靠关系（用户拖拽布局，导体模型持久化；无表单，仅存储）
   ctx.config.register(ctx, { namespace: 'docking', displayName: '插件装载布局', defaults: {} });
+  // agent 配置分节：Agent/对话双模式 + 工具启用集合（工具管理）。mode: 'agent'(默认)/'chat'；
+  // enabledTools: 工具名→是否启用，空={} 表示全开（默认）；web_search 独立受联网开关控制，不归这里管。
+  ctx.config.register(ctx, { namespace: 'agent', displayName: 'Agent 模式', defaults: { mode: 'agent', enabledTools: {} } });
 
   // 4. 主题恢复 + GUI 仲裁（读 manifest 的 providesGui，替代旧 GUI_THEMES 硬编码）
   const themeManifests = PLUGINS.filter((m) => m.kind === 'ui-theme');

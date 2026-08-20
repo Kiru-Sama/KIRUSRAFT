@@ -9,7 +9,7 @@
  *   - ChatController 新增 renameSession（改标题落盘）与 regenerate（截断重发）
  */
 import { Context } from '@deepseek-ai/cordis';
-import { runAgentLoop } from './agent-loop';
+import { runAgentLoop, type ToolExecutor } from './agent-loop';
 import { appendMessage, createSession, toChatMessages } from './session';
 import { logger } from './logger';
 import type { Session, Message, UIMessagePart, ProviderProfile } from './types';
@@ -58,6 +58,41 @@ export interface ChatController {
 
 /** 对话文本总长上限：超过时发送前提醒（APITOOL 同款逻辑，只算文本消息，不含图片/文件） */
 export const MAX_CONTEXT_CHARS = 100000;
+
+/**
+ * Agent 配置分节结构（index.ts 注册，namespace 'agent'）。
+ * mode: 'agent'(默认) 代理模式=按工具管理开关发选中工具；'chat' 对话模式=一刀切不带任何工具。
+ * enabledTools: 工具名→是否启用，缺省(无该键)=开，显式 false=停用；空 {} = 全开。
+ */
+export interface AgentConfig {
+  mode: 'agent' | 'chat';
+  enabledTools: Record<string, boolean>;
+}
+
+/**
+ * 按 Agent 模式 + 工具启用集合过滤 ctx.tools 的工具执行器。
+ * 关键点：runAgentLoop 通过 executor.declarations() 把工具声明发给模型，所以过滤必须在
+ * 执行器层完成（对话模式返回空声明 = 不带工具）。web_search 是服务端工具，走
+ * request.tools 独立控制（联网搜索开关），不经过这里。
+ */
+function buildAgentToolExecutor(ctx: Context, cfg: AgentConfig): ToolExecutor {
+  const enabledTools = cfg?.enabledTools ?? {};
+  // 模式判定统一：非 'chat' 即代理（与 UI 高亮一致，避免配置异常时界面显示代理实际无工具）
+  const tools =
+    cfg?.mode !== 'chat'
+      ? ctx.tools.list().filter((t) => enabledTools[t.name] !== false)
+      : [];
+  return {
+    declarations: () =>
+      tools.map((t) => ({
+        type: 'function' as const,
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters ?? { type: 'object' as const, properties: {} },
+      })),
+    execute: (name, args) => ctx.tools.execute(name, args),
+  };
+}
 
 /** 统计会话对话文本总字符数（只算 text 部件，image 部件不计——文件不塞进对话） */
 export function countContextChars(session: Session): number {
@@ -286,6 +321,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       // validateSend 已校验通过，这里重新读取（config 可能已变，闭包里的旧引用会失效）
       const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
       const provider = ctx.providers.get(currentProfile.id)!;
+      // Agent 模式 + 工具管理：按 config.agent 组装 function 工具集（对话模式=不带工具；
+      // 代理模式=过滤掉工具管理里显式停用的；web_search 独立走 request.tools，不受工具管理管）
+      const agentCfg = (ctx.config.get('agent') ?? {}) as unknown as AgentConfig;
 
       await runAgentLoop(
         {
@@ -299,7 +337,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             maxTokens: 4096,
             tools: els.webSearch?.checked ? [{ type: 'web_search', max_uses: 3 }] : undefined,
           },
-          tools: ctx.tools,
+          tools: buildAgentToolExecutor(ctx, agentCfg),
           signal: abortCtrl.signal,
         },
         {

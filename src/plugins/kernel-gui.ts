@@ -17,7 +17,7 @@ import type { TopologyNode } from '../core/topology';
 import type { PluginManifest } from '../core/manifest';
 
 export const name = 'kernel-gui';
-export const inject = ['tools', 'providers', 'config', 'storage', 'topology', 'update'];
+export const inject = ['tools', 'providers', 'config', 'storage', 'topology'];
 
 export const manifest: PluginManifest = {
   name,
@@ -613,8 +613,20 @@ export function apply(ctx: Context): void {
 
   async function checkUpdate(): Promise<void> {
     const resultEl = panel.querySelector('[data-kupdate="result"]') as HTMLElement | null;
+    // update 服务可选（update-checker 插件停用时无此服务）：没有则提示不可用，不拖垮管理中心
+    const updateSvc = (ctx as unknown as {
+      update?: {
+        checkLatest(): Promise<{ info: { tagName?: string; apkUrl?: string } | null; error?: string }>;
+        compareVersion(a: string, b: string): boolean;
+        download(url: string): Promise<{ blob: Blob; filename: string } | null>;
+      };
+    }).update;
+    if (!updateSvc) {
+      if (resultEl) resultEl.textContent = '更新检测插件未启用';
+      return;
+    }
     if (resultEl) resultEl.textContent = '检查中...';
-    const latest = await ctx.update.checkLatest();
+    const latest = await updateSvc.checkLatest();
     // await 后重新查询（DOM 可能已重建），失效则放弃
     const currentEl = panel.querySelector('[data-kupdate="result"]') as HTMLElement | null;
     if (!currentEl || !currentEl.isConnected) return;
@@ -627,7 +639,7 @@ export function apply(ctx: Context): void {
       currentEl.textContent = '未找到版本信息';
       return;
     }
-    if (ctx.update.compareVersion(info.tagName, CURRENT_VERSION)) {
+    if (updateSvc.compareVersion(info.tagName, CURRENT_VERSION)) {
       currentEl.innerHTML = `发现新版本 <strong class="kg-accent">${esc(info.tagName)}</strong>`;
       if (info.apkUrl) {
         // 重复点击时先清空旧按钮
@@ -642,7 +654,7 @@ export function apply(ctx: Context): void {
         dlBtn.addEventListener('click', () => {
           void (async () => {
             dlBtn.textContent = '下载中...';
-            const result = await ctx.update.download(info.apkUrl!);
+            const result = await updateSvc.download(info.apkUrl!);
             if (!result) {
               dlBtn.textContent = '下载失败';
               return;

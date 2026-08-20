@@ -452,6 +452,35 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-settings-body::-webkit-scrollbar-track, .ex-settings-nav::-webkit-scrollbar-track { background:var(--ex-bg2); border-radius:0; }
 .ex-settings-body::-webkit-scrollbar-thumb, .ex-settings-nav::-webkit-scrollbar-thumb { background:var(--ex-border2); border-radius:0; }
 .ex-settings-body::-webkit-scrollbar-thumb:hover, .ex-settings-nav::-webkit-scrollbar-thumb:hover { background:var(--ex-accent); }
+/* ==================== 能力设置独立页面（模式切换 + 工具管理 + 检查更新） ==================== */
+.ex-capability { display:none; position:fixed; inset:0; width:100%; height:100%; z-index:4000; background:var(--ex-bg); flex-direction:column; overflow:hidden; color:var(--ex-text); }
+.ex-capability.show { display:flex; }
+.ex-capability-head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-shrink:0; padding:calc(14px + env(safe-area-inset-top,0px)) 20px 14px; background:var(--ex-surface); border-bottom:1px solid var(--ex-border); }
+.ex-capability-head-left { display:flex; align-items:center; gap:10px; min-width:0; }
+.ex-capability-head-left h2 { margin:0; font-size:18px; color:var(--ex-accent); letter-spacing:2px; font-weight:900; white-space:nowrap; }
+.ex-capability-body { flex:1; overflow-y:auto; overflow-x:hidden; padding:20px 24px 40px; min-height:0; }
+.ex-capability-body::-webkit-scrollbar { width:6px; }
+.ex-capability-body::-webkit-scrollbar-track { background:var(--ex-bg2); border-radius:0; }
+.ex-capability-body::-webkit-scrollbar-thumb { background:var(--ex-border2); border-radius:0; }
+.ex-capability-body::-webkit-scrollbar-thumb:hover { background:var(--ex-accent); }
+/* 模式切换：两选项按钮横排（当前模式高亮；Exdark 直角硬边框风格） */
+.ex-capability-mode { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px 0; }
+.ex-mode-btn { padding:12px 10px; border:1px solid var(--ex-border2); background:var(--ex-surface); color:var(--ex-text2); cursor:pointer; font-size:13px; font-weight:900; text-align:center; font-family:var(--ex-font); box-shadow:0 1px 6px rgba(0,0,0,.25); transition:all .2s; }
+.ex-mode-btn:hover { border-color:var(--ex-accent); color:var(--ex-text); }
+.ex-mode-btn.active { background:var(--ex-accent); border-color:var(--ex-accent); color:var(--ex-bg); box-shadow:0 1px 6px rgba(0,0,0,.25); }
+/* 工具管理列表：复用 .ex-tool-row / .ex-tool-switch（Agent 工具管理同款） */
+.ex-capability-tools { display:flex; flex-direction:column; gap:8px; padding:14px 0; }
+/* 检查更新：按钮行 + 结果区（有新版显示版本号 + 下载按钮；失败显示错误） */
+.ex-update-row { display:flex; align-items:center; gap:12px; padding:14px 0 10px; }
+.ex-update-result { font-size:12px; color:var(--ex-text2); padding:0 0 14px; min-height:18px; line-height:1.6; word-break:break-all; }
+.ex-update-result .ex-ver { color:var(--ex-accent); font-weight:900; }
+.ex-update-result .ex-err { color:var(--ex-accent2); }
+.ex-update-dl { margin-top:8px; padding:8px 18px; background:var(--ex-accent); color:var(--ex-bg); border:1px solid var(--ex-accent); font-weight:900; cursor:pointer; font-family:var(--ex-font); font-size:12px; transition:all .2s; }
+.ex-update-dl:hover { background:var(--ex-accent2); border-color:var(--ex-accent2); }
+@media (max-width:768px){
+  .ex-capability-body { padding:16px 14px 40px; }
+  .ex-capability-mode { grid-template-columns:1fr; }
+}
 /* ---- 插件管理卡片：左侧状态方块灯 + 两行（名字/状态 + 描述），默认折叠点开操作 ---- */
 .ex-plugin-list { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 .ex-plugin-group-title { font-size:12px; font-weight:900; color:var(--ex-accent); border-left:4px solid var(--ex-accent); padding-left:8px; margin:14px 0 8px; letter-spacing:1px; }
@@ -485,6 +514,18 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-plugin-btn.off { border-color:var(--ex-accent2); color:var(--ex-accent2); }
 .ex-plugin-btn.off:hover { background:var(--ex-accent2); color:var(--ex-bg); }
 .ex-plugin-btn:disabled { opacity:.5; cursor:not-allowed; }
+/* Agent 工具管理：工具行 + 方形开关（Exdark 直角风格，零圆角；能力设置页复用） */
+.ex-agent-note { font-size:11px; color:var(--ex-text3); padding:0 0 12px; line-height:1.6; }
+.ex-tool-row { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--ex-surface2); padding:10px 12px; border:1px solid var(--ex-border); }
+.ex-tool-info { flex:1; min-width:0; }
+.ex-tool-name { font-size:12px; font-weight:900; color:var(--ex-text); letter-spacing:.5px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.ex-tool-desc { font-size:11px; color:var(--ex-text2); margin-top:2px; word-break:break-all; line-height:1.5; }
+.ex-tool-switch { position:relative; flex-shrink:0; width:44px; height:22px; cursor:pointer; }
+.ex-tool-switch input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
+.ex-tool-switch-track { position:absolute; inset:0; background:var(--ex-bg3); border:1px solid var(--ex-border); transition:all .2s; }
+.ex-tool-switch-track::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; background:var(--ex-text); transition:all .2s; }
+.ex-tool-switch input:checked + .ex-tool-switch-track { background:var(--ex-accent); border-color:var(--ex-accent); }
+.ex-tool-switch input:checked + .ex-tool-switch-track::after { left:24px; background:var(--ex-bg); }
 .ex-plugin-detail { display:none; padding:0 14px 12px; border-top:2px solid var(--ex-border); }
 .ex-plugin-card.open .ex-plugin-detail { display:block; }
 .ex-plugin-detail-row { font-size:11px; color:var(--ex-text2); margin:6px 0; line-height:1.6; }
@@ -616,9 +657,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       </aside>
       <div class="ex-right-mask" data-ex="right-mask"></div>
     </div>
-    <!-- 更多菜单（侧栏开关；设置入口已在侧边栏右下角，不再重复） -->
+    <!-- 更多菜单（侧栏开关；能力设置独立页；设置入口已在侧边栏右下角，不再重复） -->
     <div class="ex-more-menu" data-ex="more-menu">
       <button type="button" class="ex-more-item" data-ex="more-sidebar">侧栏</button>
+      <button type="button" class="ex-more-item" data-ex="more-capability">能力设置</button>
     </div>
     <!-- 模型下拉（右上角模型名点击展开：自动检测模型列表 + 自定义输入） -->
     <div class="ex-model-pop" data-ex="model-pop">
@@ -650,6 +692,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           <button type="button" class="ex-nav-item" data-ex-nav="sec-plugins">插件管理</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-storage">存档管理</button>
           <button type="button" class="ex-nav-item" data-ex-nav="sec-logs">运行记录</button>
+          <button type="button" class="ex-nav-item" data-ex-nav="sec-update">检查更新</button>
         </nav>
         <div class="ex-settings-body" data-ex="settings-body">
           <div class="ex-section" id="sec-api">
@@ -789,6 +832,16 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-log-view" data-ex="logView" style="display:none;background:var(--ex-bg);padding:12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.6;color:var(--ex-text2);white-space:pre-wrap;word-break:break-all;min-height:88px;max-height:50vh;overflow-y:auto;"></div>
             </div>
           </div>
+          <!-- 检查更新：手动检查最新版本（放设置里） -->
+          <div class="ex-section" id="sec-update">
+            <div class="ex-section-title">检查更新</div>
+            <div class="ex-card-group">
+              <div class="ex-update-row">
+                <button type="button" class="ex-top-btn" data-ex="checkUpdate">检查更新</button>
+              </div>
+              <div class="ex-update-result" data-ex="update-result"></div>
+            </div>
+          </div>
           <!-- 危险区：独立分区放最底部（存档管理之外），红色标题 + 红色描边按钮 -->
           <div class="ex-section" id="sec-danger">
             <div class="ex-section-title danger">⚠ 危险操作</div>
@@ -800,6 +853,35 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           <div class="ex-footer-ver">KIRUSRAFT v${VERSION} 云上千夜</div>
         </div>
         </div><!-- .ex-settings-main -->
+      </div>
+    </div>
+    <!-- 能力设置独立页面（模式切换 + 工具管理 + 检查更新）：全屏浮层，仿设置页结构 -->
+    <div class="ex-capability" data-ex="capability">
+      <div class="ex-capability-head">
+        <div class="ex-capability-head-left">
+          <button type="button" class="ex-settings-back" data-ex="capabilityBack" title="返回">←</button>
+          <h2>能力设置</h2>
+        </div>
+      </div>
+      <div class="ex-capability-body">
+        <!-- 运行模式：代理/对话 双选项（当前模式高亮），点击切换 + 持久化 -->
+        <div class="ex-section">
+          <div class="ex-section-title">运行模式</div>
+          <div class="ex-card-group">
+            <div class="ex-capability-mode">
+              <button type="button" class="ex-mode-btn" data-ex-mode="agent">[代理模式]</button>
+              <button type="button" class="ex-mode-btn" data-ex-mode="chat">[对话模式]</button>
+            </div>
+            <div class="ex-agent-note">代理模式按下方工具开关向 AI 发送工具；对话模式不带任何工具。web_search 由输入区联网搜索开关独立控制。</div>
+          </div>
+        </div>
+        <!-- 工具管理：列出全部已注册工具（开关写 config.agent.enabledTools，默认全开） -->
+        <div class="ex-section">
+          <div class="ex-section-title">工具管理</div>
+          <div class="ex-card-group">
+            <div class="ex-capability-tools" data-ex="capability-tools">工具列表加载中...</div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="ex-toast-container" data-ex="toast"></div>
@@ -865,6 +947,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const resetAppBtn = container.querySelector('[data-ex="resetApp"]') as HTMLButtonElement;
   const settingsCancelBtn = container.querySelector('[data-ex="settingsCancel"]') as HTMLButtonElement;
   const settingsSaveBtn = container.querySelector('[data-ex="settingsSave"]') as HTMLButtonElement;
+  const capabilityModal = container.querySelector('[data-ex="capability"]') as HTMLElement;
+  const capabilityBackBtn = container.querySelector('[data-ex="capabilityBack"]') as HTMLButtonElement;
   const logRefreshBtn = container.querySelector('[data-ex="logRefresh"]') as HTMLButtonElement;
   const logClearBtn = container.querySelector('[data-ex="logClear"]') as HTMLButtonElement;
   const logCopyBtn = container.querySelector('[data-ex="logCopy"]') as HTMLButtonElement;
@@ -953,6 +1037,25 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   }
   function closeSettings(): void {
     settingsModal.classList.remove('show');
+  }
+
+  /** 能力设置独立页：打开时渲染模式高亮 + 工具列表（先关设置页，防残留叠层） */
+  function openCapability(): void {
+    closeSettings();
+    renderCapabilityTools();
+    syncModeButtons();
+    capabilityModal.classList.add('show');
+  }
+  function closeCapability(): void {
+    capabilityModal.classList.remove('show');
+  }
+  /** 模式切换按钮高亮（config.agent.mode：agent=代理 / chat=对话） */
+  function syncModeButtons(): void {
+    const agentBtn = capabilityModal.querySelector('[data-ex-mode="agent"]') as HTMLElement | null;
+    const chatBtn = capabilityModal.querySelector('[data-ex-mode="chat"]') as HTMLElement | null;
+    const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+    agentBtn?.classList.toggle('active', agent.mode !== 'chat');
+    chatBtn?.classList.toggle('active', agent.mode === 'chat');
   }
 
   /** 渲染右侧边栏统计（插件/工具/服务商/配置分节数） */
@@ -1116,6 +1219,49 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /** 渲染能力设置页的工具管理列表（列出 ctx.tools 全部工具；开关写入 config.agent.enabledTools，无记录=默认开） */
+  function renderCapabilityTools(): void {
+    const listEl = container.querySelector('[data-ex="capability-tools"]') as HTMLElement | null;
+    if (!listEl) return;
+    const tools = ctx.tools.list();
+    if (tools.length === 0) {
+      listEl.innerHTML = `<div style="font-size:12px;color:var(--ex-text3);padding:16px;text-align:center;">（暂无已注册工具）</div>`;
+      return;
+    }
+    const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+    const enabledTools = (agent.enabledTools as Record<string, boolean> | undefined) ?? {};
+    listEl.innerHTML = tools
+      .map((t) => {
+        const on = enabledTools[t.name] !== false;
+        return `<div class="ex-tool-row">
+          <div class="ex-tool-info">
+            <div class="ex-tool-name">${esc(t.name)}</div>
+            <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
+          </div>
+          <label class="ex-tool-switch" title="${on ? '停用' : '启用'}">
+            <input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} />
+            <span class="ex-tool-switch-track"></span>
+          </label>
+        </div>`;
+      })
+      .join('');
+    listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-toggle]').forEach((chk) => {
+      chk.addEventListener('change', () => {
+        const name = chk.dataset.exToolToggle;
+        if (!name) return;
+        const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+        const enabledTools = { ...((agent.enabledTools as Record<string, boolean> | undefined) ?? {}) };
+        if (chk.checked) {
+          delete enabledTools[name]; // 默认全开：启用 = 不记录，恢复默认
+        } else {
+          enabledTools[name] = false;
+        }
+        ctx.config.set('agent', { ...agent, enabledTools });
+        showToast(chk.checked ? `已启用工具 ${name}` : `已停用工具 ${name}`);
+      });
+    });
   }
 
   // ---- 轻量 Markdown（安全：全部先 esc 再套白名单标签，无外部依赖） ----
@@ -1783,6 +1929,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       rightMask.classList.toggle('show', !rightSidebar.classList.contains('hidden'));
       void renderRightStats();
     });
+    // 更多菜单：能力设置（打开独立全屏页，模式切换/工具管理/检查更新 全部集中在该页）
+    const moreCapabilityBtn = container.querySelector('[data-ex="more-capability"]') as HTMLButtonElement | null;
+    moreCapabilityBtn?.addEventListener('click', () => {
+      moreMenu.classList.remove('show');
+      openCapability();
+    });
     // 右侧边栏遮罩点外关闭
     rightMask.addEventListener('click', () => {
       rightSidebar.classList.add('hidden');
@@ -1995,6 +2147,98 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 取消 / 保存（占位）
     settingsCancelBtn.addEventListener('click', closeSettings);
     settingsSaveBtn.addEventListener('click', () => showToast('功能开发中：保存设置'));
+
+    // ==================== 能力设置独立页交互 ====================
+    // 返回按钮：关闭本页
+    capabilityBackBtn.addEventListener('click', closeCapability);
+    // 模式切换：代理/对话（写 config.agent.mode + 高亮 + toast）
+    capabilityModal.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-ex-mode]') as HTMLElement | null;
+      if (!btn?.dataset.exMode) return;
+      const mode = btn.dataset.exMode;
+      const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+      ctx.config.set('agent', { ...agent, mode });
+      syncModeButtons();
+      showToast(mode === 'chat' ? '已切换：对话模式（不带工具）' : '已切换：代理模式');
+    });
+    // 检查更新：update 服务可选（update-checker 停用时无此服务），缺失则提示不可用，不拖垮页面
+    const checkUpdateBtn = container.querySelector('[data-ex="checkUpdate"]') as HTMLButtonElement | null;
+    const updateResultEl = container.querySelector('[data-ex="update-result"]') as HTMLElement | null;
+    checkUpdateBtn?.addEventListener('click', () => {
+      void (async () => {
+        const updateSvc = (ctx as unknown as {
+          update?: {
+            checkLatest(): Promise<{ info: { tagName?: string; apkUrl?: string } | null; error?: string }>;
+            compareVersion(a: string, b: string): boolean;
+            download(url: string): Promise<{ blob: Blob; filename: string } | null>;
+          };
+        }).update;
+        if (!updateSvc) {
+          if (updateResultEl) updateResultEl.textContent = '更新检测插件未启用';
+          return;
+        }
+        if (checkUpdateBtn) {
+          checkUpdateBtn.disabled = true;
+          checkUpdateBtn.textContent = '检查中...';
+        }
+        if (updateResultEl) updateResultEl.textContent = '正在检查最新版本...';
+        try {
+          const latest = await updateSvc.checkLatest();
+          // await 后 DOM 可能已重建（主题切换），失效则放弃
+          if (!updateResultEl || !updateResultEl.isConnected) return;
+          if (!latest.info) {
+            updateResultEl.innerHTML = `<span class="ex-err">检查失败：${esc(latest.error || '未知错误')}</span>`;
+            return;
+          }
+          const info = latest.info; // 局部变量：TS narrowing 对 latest.info 失效
+          if (!info.tagName) {
+            updateResultEl.textContent = '未找到版本信息';
+            return;
+          }
+          if (updateSvc.compareVersion(info.tagName, VERSION)) {
+            updateResultEl.innerHTML = `发现新版本 <span class="ex-ver">${esc(info.tagName)}</span>（当前 ${esc(VERSION)}）`;
+            if (info.apkUrl) {
+              const dlBtn = document.createElement('button');
+              dlBtn.type = 'button';
+              dlBtn.className = 'ex-update-dl';
+              dlBtn.textContent = '下载 APK';
+              dlBtn.addEventListener('click', () => {
+                void (async () => {
+                  dlBtn.textContent = '下载中...';
+                  dlBtn.disabled = true;
+                  const result = await updateSvc.download(info.apkUrl!);
+                  if (!result) {
+                    dlBtn.textContent = '下载失败';
+                    return;
+                  }
+                  const url = URL.createObjectURL(result.blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = result.filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  dlBtn.textContent = '已下载';
+                })();
+              });
+              updateResultEl.appendChild(dlBtn);
+            }
+          } else {
+            updateResultEl.textContent = `已是最新版本 ${esc(VERSION)}（远端 ${esc(info.tagName)}）`;
+          }
+        } catch (error) {
+          if (updateResultEl && updateResultEl.isConnected) {
+            updateResultEl.innerHTML = `<span class="ex-err">检查失败：${esc(error instanceof Error ? error.message : String(error))}</span>`;
+          }
+        } finally {
+          if (checkUpdateBtn && checkUpdateBtn.isConnected) {
+            checkUpdateBtn.disabled = false;
+            checkUpdateBtn.textContent = '检查更新';
+          }
+        }
+      })();
+    });
 
     // 运行记录（日志）：展开/收起（展开时自动刷新）/ 刷新 / 复制 / 导出 / 清空
     logExpandBtn.addEventListener('click', toggleLogView);
