@@ -63,6 +63,10 @@ export interface ChatController {
   regenerate(): void;
   /** 按消息 id 重新生成（RikkaHub 语义：user 截断重发 / assistant push 新候选共享链） */
   regenerateAt(messageId: string): void;
+  /** 编辑用户消息：push 新候选（新文本）+ 截断该节点后续 + 重新生成回复（APITOOL 编辑重发语义） */
+  editUserMessage(messageId: string, newText: string): void;
+  /** 就地编辑 AI 回复：改选中候选文本 + 标 editedByUser（不重发）；"已修改"标记不进 AI 上下文 */
+  editAiMessage(messageId: string, newText: string): void;
   /** 切换分支候选（只改目标节点 selectIndex，后续链不动） */
   selectCandidate(nodeId: string, selectIndex: number): void;
   /** 从消息处 fork 新会话（复制截断节点链，原会话不动，切换过去） */
@@ -318,6 +322,14 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   /** 发送前置校验：返回可发送的部件（空数组=不可发，原因已写入状态栏）。regenerate 截断前必须先过此关（P1-1：避免校验失败时数据已删） */
   function validateParts(parts: UIMessagePart[]): boolean {
+    if (!validateStream()) return false;
+    // 有文本（非空白）或图片部件即可发送（图片=纯图片消息）
+    const hasContent = parts.some((p) => p.type === 'image' || (p.type === 'text' && p.text.trim().length > 0));
+    return hasContent;
+  }
+
+  /** 流式校验（不含内容检查）：重发/回复流不追加用户输入，只查状态/配置/长度。P1-1 同源 */
+  function validateStream(): boolean {
     if (disposed || streaming || switchingSession) {
       // P2-8：切换会话进行中拒绝发送（避免写进旧会话）
       if (switchingSession) els.status.textContent = '正在切换会话...';
@@ -327,9 +339,6 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       els.status.textContent = '正在加载会话...';
       return false;
     }
-    // 有文本（非空白）或图片部件即可发送（图片=纯图片消息）
-    const hasContent = parts.some((p) => p.type === 'image' || (p.type === 'text' && p.text.trim().length > 0));
-    if (!hasContent) return false;
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     if (!currentProfile.apiKey) {
       els.status.textContent = '请先在设置中填写 API Key';
@@ -443,8 +452,15 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.messages.scrollTop = els.messages.scrollHeight;
             els.status.textContent = '生成中...';
           },
-          onReasoningDelta: () => {
+          onReasoningDelta: (delta) => {
+            // 思考过程（v0.0.66）：累积到 AI 消息 reasoning + 气泡推理区展示；不进 AI 上下文
             els.status.textContent = '推理中...';
+            const aiMsg = session.nodes[session.nodes.length - 1]?.messages[session.nodes[session.nodes.length - 1]?.selectIndex ?? 0];
+            if (aiMsg) {
+              aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
+              const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
+              if (rEl) rEl.textContent = aiMsg.reasoning;
+            }
           },
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
@@ -616,11 +632,56 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     }
   }
 
+  /** 编辑用户消息（APITOOL editMsg 原创语义）：push 新候选（新文本）+ 截断该节点后续 + 重新生成回复 */
+  function editUserMessage(messageId: string, newText: string): void {
+    if (disposed || streaming) {
+      // APITOOL：流式期间编辑会被渲染覆盖——拦截
+      els.status.textContent = streaming ? '生成中，暂不能编辑' : '';
+      return;
+    }
+    const text = newText.trim();
+    if (!text) return;
+    const found = findNodeByMessage(session, messageId);
+    if (!found) return;
+    const { node, nodeIndex } = found;
+    // 新候选：同 role（user）、新 id、新文本；保留原 created（时间戳展示不变）
+    const newMsg = createMessage('user', [{ type: 'text', text }]);
+    newMsg.createdAt = node.messages[0]?.createdAt ?? newMsg.createdAt;
+    pushCandidate(session, nodeIndex, newMsg);
+    // 截断该节点之后的所有节点（编辑后重生成回复；RikkaHub user 编辑=截断语义）
+    truncateAfter(session, nodeIndex);
+    saveSessionSafe();
+    renderCurrent();
+    void streamReply(); // 从链尾 append 新 AI 节点重新生成回复
+  }
+
+  /** 就地编辑 AI 回复（APITOOL editAiMsg 原创语义）：剥思考块给正文编辑、改选中候选文本、标 editedByUser（不重发）；
+   *  "已编辑"标记只做 UI 展示，不进 AI 上下文（toChatContent 只取 parts） */
+  function editAiMessage(messageId: string, newText: string): void {
+    if (disposed || streaming) {
+      // APITOOL M2：流式期间编辑会被渲染覆盖——拦截
+      els.status.textContent = streaming ? '生成中，暂不能编辑' : '';
+      return;
+    }
+    const found = findNodeByMessage(session, messageId);
+    if (!found) return;
+    const { node } = found;
+    const idx = node.selectIndex >= 0 && node.selectIndex < node.messages.length ? node.selectIndex : 0;
+    const msg = node.messages[idx];
+    if (!msg || msg.role !== 'ai') return;
+    const text = newText.trim();
+    if (!text) return;
+    msg.parts = [{ type: 'text', text }];
+    msg.editedByUser = true;
+    saveSessionSafe();
+    renderCurrent();
+  }
+
   /** 截断后以最后一条 user 消息为锚重新生成回复（append 新 AI 节点） */
   async function sendReplyToUser(userMessageId: string): Promise<void> {
     const found = findNodeByMessage(session, userMessageId);
-    if (!found || !validateParts([{ type: 'text', text: '' }])) {
-      // 用最后一条 user 消息内容补发（兼容 validateParts 对空文本的拦截）
+    if (!found || !validateStream()) {
+      // 状态/配置校验失败（已截断数据）：用最后一条 user 消息内容补发（兜底，避免已删数据无处安放）
       const msgs = currentMessages(session);
       const last = [...msgs].reverse().find((m) => m.role === 'user');
       if (!last) return;
@@ -637,7 +698,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   /** 发送纯回复流（不追加 user 消息）：append 新 AI 节点（对应 RikkaHub 截断后 handleMessageComplete 重生成） */
   async function streamReply(): Promise<void> {
-    if (!validateParts([{ type: 'text', text: '' }])) return;
+    if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
     streaming = true;
     const token = ++streamToken;
     els.onSendAccepted?.();
@@ -688,8 +749,15 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.messages.scrollTop = els.messages.scrollHeight;
             els.status.textContent = '生成中...';
           },
-          onReasoningDelta: () => {
+          onReasoningDelta: (delta) => {
+            // 思考过程（v0.0.66）：累积到 AI 消息 reasoning + 气泡推理区展示；不进 AI 上下文
             els.status.textContent = '推理中...';
+            const aiMsg = session.nodes[session.nodes.length - 1]?.messages[session.nodes[session.nodes.length - 1]?.selectIndex ?? 0];
+            if (aiMsg) {
+              aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
+              const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
+              if (rEl) rEl.textContent = aiMsg.reasoning;
+            }
           },
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
@@ -730,7 +798,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
 
   /** assistant 候选重新生成：流式写回已 push 的候选节点（不追加新节点，RikkaHub updateCurrentMessages 按节点下标写回） */
   async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[]): Promise<void> {
-    if (!validateParts([{ type: 'text', text: '' }])) return;
+    if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
     streaming = true;
     const token = ++streamToken;
     els.onSendAccepted?.();
@@ -775,8 +843,16 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.messages.scrollTop = els.messages.scrollHeight;
             els.status.textContent = '生成中...';
           },
-          onReasoningDelta: () => {
+          onReasoningDelta: (delta) => {
+            // 思考过程（v0.0.66）：累积到 AI 候选消息 reasoning + 气泡推理区展示；不进 AI 上下文
+            // streamReplyAt：AI 候选在 nodeIndex 节点（共享链，未必是最后一个节点）
             els.status.textContent = '推理中...';
+            const aiMsg = session.nodes[nodeIndex]?.messages[session.nodes[nodeIndex]?.selectIndex ?? 0];
+            if (aiMsg) {
+              aiMsg.reasoning = (aiMsg.reasoning ?? '') + delta;
+              const rEl = aiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
+              if (rEl) rEl.textContent = aiMsg.reasoning;
+            }
           },
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
@@ -861,6 +937,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     renameSession,
     regenerate,
     regenerateAt,
+    editUserMessage,
+    editAiMessage,
     selectCandidate,
     forkAt,
     getBranchSnapshot,

@@ -25,6 +25,10 @@ export interface Message {
   role: MessageRole;
   parts: UIMessagePart[];
   createdAt: number;
+  /** 用户就地编辑过（AI 回复修改标记，v0.0.66）：UI 在时间旁标"已修改"，标记本身不进 AI 上下文 */
+  editedByUser?: boolean;
+  /** AI 思考过程（推理文本，v0.0.66）：流式时累积、气泡内展示；不进 AI 上下文（toChatContent 只取 parts） */
+  reasoning?: string;
 }
 
 /** 消息节点（RikkaHub MessageNode 对齐版）：会话内一个"位置"，可含多个候选消息（regen/编辑产生），selectIndex 选中当前展示哪个 */

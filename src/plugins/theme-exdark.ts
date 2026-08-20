@@ -87,9 +87,6 @@ const STYLE = `
 .ex-sidebar-row { display:flex; gap:8px; }
 .ex-sidebar-row .ex-btn-new { flex:1; }
 .ex-sidebar-row .ex-btn-manage { flex-shrink:0; width:auto; padding:10px 12px; }
-/* 侧边栏底部设置入口（参考 rikka 列表底部设置）：右下角固定 */
-.ex-sidebar-settings { margin:auto 10px 10px; padding:10px; background:var(--ex-surface2); color:var(--ex-text2); border:1px solid var(--ex-border2); font-weight:900; text-transform:uppercase; letter-spacing:1px; cursor:pointer; font-family:var(--ex-font); font-size:11px; transition:all .2s; }
-.ex-sidebar-settings:hover { background:var(--ex-border2); color:var(--ex-bg); }
 /* ---- 侧边栏对话管理模式（v0.0.65：批量管理工具条 + 卡片 checkbox/×） ---- */
 .ex-manage-bar { display:flex; gap:6px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--ex-border); background:var(--ex-surface); flex-wrap:wrap; }
 .ex-manage-btn { background:var(--ex-surface2); border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:4px 8px; cursor:pointer; font-family:var(--ex-font); font-weight:bold; }
@@ -219,54 +216,51 @@ const STYLE = `
 .ex-btn-clear:active { transform:translateY(0); box-shadow:none; }
 /* ---- 消息区（气泡 = 内容 + 底部操作条；v0.0.65 改版：时间在气泡外上方，去角色标签，对齐由 wrap 控制） ---- */
 .ex-msgwrap { flex:1; position:relative; display:flex; flex-direction:column; min-height:0; }
-.ex-messages { flex:1; overflow-y:auto; padding:24px 16px 8px; display:flex; flex-direction:column; position:relative; z-index:1; }
-/* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左） */
-.ex-msg-wrap { max-width:88%; margin-bottom:22px; display:flex; flex-direction:column; }
+.ex-messages { flex:1; overflow-y:auto; padding:20px 8px 8px; display:flex; flex-direction:column; position:relative; z-index:1; }
+/* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.66 拉宽横向空间（手机屏窄多利用） */
+.ex-msg-wrap { max-width:96%; margin-bottom:20px; display:flex; flex-direction:column; }
 .ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
 .ex-msg-wrap.ex-ai { margin-right:auto; align-items:flex-start; }
 /* 时间戳：气泡外上方（小字，弱化） */
 .ex-msg-time { font-size:10px; color:var(--ex-text3); margin-bottom:4px; padding:0 4px; }
-.ex-msg-wrap.ex-user .ex-msg-time { color:rgba(26,26,26,0.7); }
 .ex-message { background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px 10px; min-width:80px; width:100%; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
-.ex-message.ex-user { background:var(--ex-accent); color:var(--ex-bg); }
+/* v0.0.66：用户气泡与 AI 同色（深色），强调边 AI 在左、用户移到右 */
+.ex-message.ex-user { border-right:3px solid var(--ex-accent); }
 .ex-message.ex-ai { border-left:3px solid var(--ex-accent); }
 /* 底部操作条：左下角分支选择（←→ n/m）+ 右下角工具（复制/重发），APITOOL 底部按钮布局 */
 .ex-msg-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
 .ex-msg-branch { display:flex; align-items:center; gap:2px; font-size:10px; color:var(--ex-text2); }
-.ex-user .ex-msg-branch { color:rgba(26,26,26,0.8); }
 .ex-msg-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 6px; cursor:pointer; font-family:var(--ex-font); }
 .ex-msg-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-msg-arrow:disabled { opacity:.35; cursor:default; }
-.ex-user .ex-msg-arrow { border-color:rgba(26,26,26,0.5); color:var(--ex-bg); }
-.ex-user .ex-msg-arrow:hover:not(:disabled) { background:var(--ex-bg); color:var(--ex-accent); }
 .ex-msg-count { padding:0 2px; min-width:26px; text-align:center; }
 .ex-msg-tools { display:flex; gap:6px; margin-left:auto; }
 .ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); }
 .ex-msg-btn:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
-.ex-user .ex-msg-btn { border-color:rgba(26,26,26,0.5); color:var(--ex-bg); }
-.ex-user .ex-msg-btn:hover { background:var(--ex-bg); color:var(--ex-accent); border-color:var(--ex-bg); }
 .ex-msg-btn.copied { background:var(--ex-accent2) !important; color:var(--ex-bg); border-color:var(--ex-accent2) !important; }
+/* AI 思考过程（v0.0.66）：可折叠推理区，放内容上方；不进 AI 上下文 */
+.ex-msg-reasoning { margin-bottom:8px; border:1px solid var(--ex-border); background:var(--ex-bg2); font-size:11px; color:var(--ex-text2); }
+.ex-msg-reasoning summary { padding:4px 8px; cursor:pointer; font-weight:bold; letter-spacing:1px; color:var(--ex-text3); user-select:none; }
+.ex-msg-reasoning summary:hover { color:var(--ex-accent); }
+.ex-msg-reasoning [data-msg-reasoning] { padding:4px 8px 8px; white-space:pre-wrap; word-break:break-word; line-height:1.5; border-top:1px solid var(--ex-border); }
+.ex-user .ex-msg-reasoning { display:none; } /* 推理只属于 AI */
 /* ---- 消息 Markdown 渲染（仅白名单标签，文本已 esc 全量转义） ---- */
 .ex-msg-content > :first-child { margin-top:0; }
 .ex-msg-content > :last-child { margin-bottom:0; }
 .ex-msg-content p { margin:6px 0; }
 .ex-msg-content h1, .ex-msg-content h2, .ex-msg-content h3 { font-weight:900; color:var(--ex-accent); margin:10px 0 6px; letter-spacing:1px; line-height:1.3; }
-.ex-ai .ex-msg-content h1, .ex-ai .ex-msg-content h2 { border-bottom:3px solid var(--ex-border); padding-bottom:4px; }
+.ex-msg-content h1, .ex-msg-content h2 { border-bottom:3px solid var(--ex-border); padding-bottom:4px; }
 .ex-msg-content h1 { font-size:17px; }
 .ex-msg-content h2 { font-size:15px; }
 .ex-msg-content h3 { font-size:14px; }
 .ex-msg-content code { background:var(--ex-bg2); color:var(--ex-accent2); padding:1px 6px; border:1px solid var(--ex-border2); font-family:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace; font-size:0.88em; word-break:break-word; }
-.ex-user .ex-msg-content code { background:rgba(255,255,255,0.25); color:var(--ex-bg); border-color:rgba(255,255,255,0.4); }
 .ex-msg-content pre { background:var(--ex-bg); border:2px solid var(--ex-border); border-left:5px solid var(--ex-accent2); padding:10px 12px; margin:8px 0; overflow-x:auto; box-shadow:0 1px 6px rgba(0,0,0,.25); }
 .ex-msg-content pre::before { content:attr(data-lang); display:block; font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--ex-text3); margin-bottom:6px; font-family:var(--ex-font); }
 .ex-msg-content pre code { background:transparent; border:none; color:var(--ex-text); padding:0; font-size:12px; line-height:1.6; display:block; white-space:pre; }
-.ex-user .ex-msg-content pre { background:rgba(26,26,26,0.85); }
 .ex-msg-content blockquote { border-left:4px solid var(--ex-accent); background:var(--ex-bg2); padding:6px 10px; margin:8px 0; color:var(--ex-text2); }
-.ex-user .ex-msg-content blockquote { background:rgba(255,255,255,0.15); color:var(--ex-bg); }
 .ex-msg-content ul, .ex-msg-content ol { padding-left:20px; margin:6px 0; }
 .ex-msg-content li { margin:2px 0; }
 .ex-msg-content a { color:var(--ex-accent); text-decoration:underline; word-break:break-all; }
-.ex-user .ex-msg-content a { color:var(--ex-bg); }
 .ex-msg-content hr { border:none; border-top:2px dashed var(--ex-border2); margin:10px 0; }
 /* 空会话引导（欢迎卡：装饰旋转方块 + 硬投影标题） */
 .ex-empty-guide { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; pointer-events:none; text-align:center; padding:24px; z-index:2; }
@@ -343,6 +337,8 @@ const STYLE = `
 @media (min-width:769px){
   .ex-toggle { display:none; }
   .ex-sidebar-mask { display:none !important; }
+  /* 桌面宽屏：气泡不撑满（96% 太宽），回 88% */
+  .ex-msg-wrap { max-width:88%; }
 }
 @media (hover:none){
   /* 触屏无 hover：会话项操作已改为长按菜单，无需此规则 */
@@ -624,8 +620,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           <input data-ex="convsearch" type="text" placeholder="搜索会话…" />
         </div>
         <div class="ex-conv-list" data-ex="convlist"></div>
-        <!-- 设置入口：侧边栏右下角（参考 rikka 列表底部设置） -->
-        <button class="ex-sidebar-settings" data-ex="sidebar-settings">设置</button>
       </aside>
       <div class="ex-sidebar-mask" data-ex="mask"></div>
       <main class="ex-main" data-ex="main">
@@ -709,6 +703,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     </div>
     <!-- 更多菜单（侧栏开关；能力设置独立页；设置入口已在侧边栏右下角，不再重复） -->
     <div class="ex-more-menu" data-ex="more-menu">
+      <!-- 设置入口移到更多菜单最上面（v0.0.66）；侧边栏右下角设置按钮已移除 -->
+      <button type="button" class="ex-more-item" data-ex="more-settings">设置</button>
       <button type="button" class="ex-more-item" data-ex="more-sidebar">侧栏</button>
       <button type="button" class="ex-more-item" data-ex="more-capability">能力设置</button>
     </div>
@@ -962,7 +958,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const webSearchEl = container.querySelector('[data-ex="websearch"]') as HTMLInputElement;
   const webSearchBtn = container.querySelector('[data-ex="websearch-btn"]') as HTMLButtonElement;
   const newChatBtn = container.querySelector('[data-ex="newchat"]') as HTMLButtonElement;
-  const sidebarSettingsBtn = container.querySelector('[data-ex="sidebar-settings"]') as HTMLButtonElement;
   const moreDot = container.querySelector('[data-ex="more-dot"]') as HTMLElement;
   const branchGraphBtn = container.querySelector('[data-ex="branch-graph"]') as HTMLButtonElement;
   const convCountEl = container.querySelector('[data-ex="convcount"]') as HTMLElement;
@@ -1768,6 +1763,15 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
   }
 
+  /** 管理模式退出（幂等）：其他操作（发送/切会话等）触发，管理是临时态 */
+  function exitManageIfActive(): void {
+    if (!manageMode) return;
+    manageMode = false;
+    manageSelected.clear();
+    updateManageBar();
+    void renderSessionList(controller.getSessionId());
+  }
+
   /** 更新管理模式工具条（选中计数 + 全选按钮状态） */
   function updateManageBar(): void {
     const bar = container.querySelector('[data-ex="manage-bar"]') as HTMLElement | null;
@@ -1843,18 +1847,33 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       // wrapper：时间在气泡外上方，气泡含内容 + 底部操作条（左下分支 ←→ n/m，右下工具）
       const wrap = document.createElement('div');
       wrap.className = `ex-msg-wrap ex-${role}`;
-      // 时间戳（气泡外上方，弱化；去掉了"AI/你"角色标签）
+      // 时间戳（气泡外上方，弱化；去掉了"AI/你"角色标签；AI 已修改的标"已修改"）
       const timeLabel = document.createElement('div');
       timeLabel.className = 'ex-msg-time';
-      timeLabel.textContent = new Date(message?.createdAt ?? Date.now()).toLocaleTimeString('zh-CN', {
+      const timeText = new Date(message?.createdAt ?? Date.now()).toLocaleTimeString('zh-CN', {
         hour12: false,
         hour: '2-digit',
         minute: '2-digit',
       });
+      const editedMark = role === 'ai' && message?.editedByUser ? ' · 已修改' : '';
+      timeLabel.textContent = timeText + editedMark;
       wrap.appendChild(timeLabel);
 
       const bubble = document.createElement('div');
       bubble.className = `ex-message ex-${role}`;
+      // AI 思考过程（v0.0.66）：推理区放内容上方，可折叠展示；不进 AI 上下文
+      if (role === 'ai') {
+        const reasonEl = document.createElement('details');
+        reasonEl.className = 'ex-msg-reasoning';
+        const summary = document.createElement('summary');
+        summary.textContent = '思考过程';
+        reasonEl.appendChild(summary);
+        const bodyEl = document.createElement('div');
+        bodyEl.setAttribute('data-msg-reasoning', '');
+        bodyEl.textContent = message?.reasoning ?? '';
+        reasonEl.appendChild(bodyEl);
+        bubble.appendChild(reasonEl);
+      }
       // 多模态渲染：文本→Markdown，图片→img（dataURL 直接显示；参考 RikkaHub UIMessagePart.Image）
       const html = parts
         .map((p) =>
@@ -1871,9 +1890,15 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       content.innerHTML = html;
       bubble.appendChild(content);
 
-      // 底部操作条：左下角分支选择器（候选>1 时显示 ←→ n/m，RikkaHub ChatMessageBranch 式）+ 右下角工具（复制/重发）
+      // 底部操作条：左下角分支选择器（候选>1 时显示 ←→ n/m，RikkaHub ChatMessageBranch 式）+ 右下角工具（复制/编辑/重发）
       const actions = document.createElement('div');
       actions.className = 'ex-msg-actions';
+      actions.setAttribute('data-msg-actions', '');
+      // AI 流式空气泡（message 未 append，v0.0.66 判定）：AI 所有信息发完（onStreamEnd）前隐藏操作按钮，
+      // 避免流式中点编辑/重发/切分支破坏渲染（APITOOL 打字动画结束才补按钮）
+      if (role === 'ai' && !message) {
+        actions.style.display = 'none';
+      }
 
       // 分支选择器：查节点链快照，该消息候选数>1 才显示
       const snap = message ? controller.getBranchSnapshot().find((n) => n.messageId === message.id) : undefined;
@@ -1903,7 +1928,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         actions.appendChild(branch);
       }
 
-      // 右下角工具：复制（AI 另加重发——按消息 id 精确重发，RikkaHub regenerateAt 语义）
+      // 右下角工具：复制 / 编辑（user=编辑重发，ai=就地编辑，APITOOL 原创语义）/ AI 重发
       const tools = document.createElement('div');
       tools.className = 'ex-msg-tools';
       const copyBtn = document.createElement('button');
@@ -1920,6 +1945,21 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         }, 1200);
       });
       tools.appendChild(copyBtn);
+      // 编辑按钮（APITOOL editMsg/editAiMsg 语义）：弹窗编辑后写回
+      if (message) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'ex-msg-btn';
+        editBtn.textContent = '编辑';
+        editBtn.title = role === 'user' ? '编辑此消息并重新生成回复' : '就地编辑此回复（不重发）';
+        editBtn.addEventListener('click', () => {
+          const oldText = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+          const next = window.prompt(role === 'user' ? '编辑用户消息（保存后重新生成回复）：' : '编辑 AI 回复（保存后使用修改后的内容，不重发）：', oldText);
+          if (next === null || !next.trim()) return;
+          if (role === 'user') controller.editUserMessage(message.id, next);
+          else controller.editAiMessage(message.id, next);
+        });
+        tools.appendChild(editBtn);
+      }
       if (role === 'ai') {
         const regenBtn = document.createElement('button');
         regenBtn.className = 'ex-msg-btn';
@@ -1947,6 +1987,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       if (lastAiBubble && lastAiBubble.isConnected) {
         const c = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
         if (c) c.innerHTML = c.textContent ? renderMarkdown(c.textContent) : '';
+        // AI 所有信息发完：显示操作按钮（流式中隐藏，v0.0.66 判定）
+        const actions = lastAiBubble.querySelector('[data-msg-actions]') as HTMLElement | null;
+        if (actions) actions.style.display = '';
       }
     },
     // 发送校验通过、开始流式：清空待发送图片（校验失败时不清，附件保留可重发）
@@ -1974,6 +2017,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 发送 / 中止 / Enter（中文输入法组合态回车不发送）；有待发送图片时走 sendWithAttachments（文本+图片一起发）。
     // 图片清空由 onSendAccepted 回调执行（发送校验通过才清，失败保留可重发）；压缩中拒绝发送防图片漏发
     sendEl.addEventListener('click', () => {
+      exitManageIfActive(); // 发送即退出管理模式（管理是临时态）
       if (processingImages > 0) {
         showToast('图片处理中，请稍候...');
         return;
@@ -2280,6 +2324,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     ctx.effect(() => () => {
       document.removeEventListener('click', closeModelPop);
     });
+    // 更多菜单：设置（移到最上面，v0.0.66）——打开设置弹窗
+    const moreSettingsBtn = container.querySelector('[data-ex="more-settings"]') as HTMLButtonElement | null;
+    moreSettingsBtn?.addEventListener('click', () => {
+      moreMenu.classList.remove('show');
+      openSettings();
+    });
     // 更多菜单：右侧边栏开关（APITOOL：右侧栏打开放更多里）
     moreSidebarBtn.addEventListener('click', () => {
       moreMenu.classList.remove('show');
@@ -2332,7 +2382,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         updateManageBar();
         return;
       }
-      if (manageMode) return; // 管理态点击卡片不切换会话
+      if (manageMode) {
+        // 管理态：点击卡片退出管理模式并切换会话（APITOOL 风格：管理是临时态，其他操作自动退出）
+        if (cb || delBtn) return; // checkbox/× 已处理
+        exitManageIfActive();
+      }
       const item = (target).closest('[data-ex-switch]') as HTMLElement | null;
       if (item && item.dataset.exSwitch) {
         ctx.emit('session-switch', item.dataset.exSwitch);
@@ -2537,8 +2591,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     updateManageBar();
 
     // 插件管理入口：在设置弹窗左侧导航（唯一入口，不放在更多菜单）
-    // 侧边栏底部：设置入口（参考 rikka 列表底部）
-    sidebarSettingsBtn.addEventListener('click', () => openSettings());
+    // 设置入口已移到更多菜单最上面（v0.0.66），侧边栏按钮已移除
     // 右侧栏：刷新分支列表（替代"查看分支图谱"占位）
     branchGraphBtn.addEventListener('click', () => {
       renderBranchList();
@@ -2929,12 +2982,14 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // 模型显示：配置变化时刷新
     const offModel = ctx.config.onChange('profile', updateModelStatus);
 
-    // 空态引导：messages 无气泡时显示（监听子节点增删）
-    const guideObserver = new MutationObserver(() => {
-      const hasMsg = messagesEl.querySelector(':scope > .ex-message') !== null;
+    // 空态引导：messages 无气泡时显示（监听子节点增删 + 初次判定——加载已有会话时 observer 建立前已渲染）
+    const syncEmptyGuide = (): void => {
+      const hasMsg = messagesEl.querySelector(':scope > .ex-msg-wrap') !== null;
       emptyGuide.classList.toggle('hidden', hasMsg);
-    });
+    };
+    const guideObserver = new MutationObserver(syncEmptyGuide);
     guideObserver.observe(messagesEl, { childList: true });
+    syncEmptyGuide();
 
     // 初次渲染会话列表
     void renderSessionList(controller.getSessionId());
