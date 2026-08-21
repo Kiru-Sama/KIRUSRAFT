@@ -37,6 +37,8 @@ export interface ChatElements {
   onStreamEnd?: () => void;
   /** 发送真正放行回调（校验通过、开始流式时触发一次；GUI 用于清空待发送附件——校验失败时不清空，附件保留可重发） */
   onSendAccepted?: () => void;
+  /** 联网搜索状态回调（v0.0.69）：GUI 右上角提示"联网搜索中/搜索完成"（APITOOL 同款） */
+  onWebSearch?: (state: 'searching' | 'completed') => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
   onLengthWarn?: (count: number, confirm: () => void) => void;
 }
@@ -490,6 +492,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
             if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
           },
+          onWebSearch: (state) => {
+            els.onWebSearch?.(state);
+          },
         },
       );
     } catch (error) {
@@ -793,6 +798,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
             if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
           },
+          onWebSearch: (state) => {
+            els.onWebSearch?.(state);
+          },
         },
       );
     } catch (error) {
@@ -892,6 +900,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             if (u.inputTokens > 0) reqInput += u.inputTokens;
             if (u.outputTokens > 0) reqOutput += u.outputTokens;
             if (u.cacheInputTokens && u.cacheInputTokens > 0) reqCache += u.cacheInputTokens;
+          },
+          onWebSearch: (state) => {
+            els.onWebSearch?.(state);
           },
         },
       );

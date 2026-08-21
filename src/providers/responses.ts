@@ -208,6 +208,14 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, argCache: Map<str
       }
       break;
     }
+    case 'response.web_search_call.in_progress':
+    case 'response.web_search_call.searching':
+      // 联网搜索状态（v0.0.69，APITOOL 同款）：模型发起搜索 → 右上角提示
+      handlers.onWebSearch?.('searching');
+      break;
+    case 'response.web_search_call.completed':
+      handlers.onWebSearch?.('completed');
+      break;
     case 'response.completed': {
       // usage 统计（v0.0.65 计费 + v0.0.67 缓存命中）：Responses API 在 completed 事件携带 usage
       const u = record.usage as Record<string, unknown> | undefined;

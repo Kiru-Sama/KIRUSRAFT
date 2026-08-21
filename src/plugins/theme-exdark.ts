@@ -203,7 +203,7 @@ const STYLE = `
 .ex-btn-clear:active { transform:translateY(0); box-shadow:none; }
 /* ---- 消息区（气泡 = 内容 + 底部操作条；v0.0.65 改版：时间在气泡外上方，去角色标签，对齐由 wrap 控制） ---- */
 .ex-msgwrap { flex:1; position:relative; display:flex; flex-direction:column; min-height:0; }
-.ex-messages { flex:1; overflow-y:auto; padding:20px 8px 8px; display:flex; flex-direction:column; position:relative; z-index:1; }
+.ex-messages { flex:1; overflow-y:auto; padding:20px 8px 16px; display:flex; flex-direction:column; position:relative; z-index:1; }
 /* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.67 拉宽到 94%（手机屏窄多利用，留两侧呼吸） */
 .ex-msg-wrap { max-width:94%; margin-bottom:20px; display:flex; flex-direction:column; }
 .ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
@@ -258,7 +258,7 @@ const STYLE = `
 .ex-empty-start { pointer-events:auto; max-width:220px; }
 .ex-status { padding:6px 16px 4px; font-size:11px; color:var(--ex-text2); min-height:20px; text-align:center; position:relative; z-index:1; }
 /* ---- 输入区（Rikka ChatInput 复刻：圆角0 + 1px 半透明描边 + 半透明 surface + blur；内部工具行 + 输入框） ---- */
-.ex-input-area { margin:8px 12px; padding:8px 10px; padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)); background:rgba(42,42,42,0.72); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.12); box-shadow:var(--ex-shadow); z-index:5; display:flex; flex-direction:column; gap:8px; }
+.ex-input-area { margin:8px 12px; padding:8px 10px; padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)); background:var(--ex-surface); border:1px solid var(--ex-border); box-shadow:var(--ex-shadow); z-index:5; display:flex; flex-direction:column; gap:8px; }
 /* 工具行：左滚动区（模型/深思/搜索/上传）+ 右固定发送 */
 .ex-tools-row { display:flex; align-items:center; gap:8px; }
 .ex-tools-scroll { display:flex; align-items:center; gap:6px; overflow-x:auto; flex:1; min-width:0; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
@@ -336,6 +336,11 @@ const STYLE = `
 .ex-changelog { position:fixed; inset:0; width:100%; height:100%; z-index:2000; background:var(--ex-bg); display:flex; flex-direction:column; overflow:hidden; color:var(--ex-text); }
 .ex-changelog-body { flex:1; overflow-y:auto; padding:16px 20px; }
 .ex-changelog-content { margin:0; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; line-height:1.7; color:var(--ex-text2); white-space:pre-wrap; word-break:break-word; }
+/* 编辑消息弹窗（v0.0.69，APITOOL editModal 同款）：textarea 大输入区 + 保存/取消 */
+.ex-edit-modal { position:fixed; inset:0; width:100%; height:100%; z-index:2000; background:var(--ex-bg); display:flex; flex-direction:column; overflow:hidden; color:var(--ex-text); }
+.ex-edit-body { flex:1; overflow-y:auto; padding:16px 20px; }
+.ex-edit-textarea { width:100%; height:100%; min-height:300px; padding:12px; background:var(--ex-bg); border:2px solid var(--ex-border2); color:var(--ex-text); font-family:var(--ex-font); font-size:13px; line-height:1.6; resize:vertical; outline:none; box-sizing:border-box; }
+.ex-edit-textarea:focus { border-color:var(--ex-accent); }
 /* 全屏设置页：占满视口（不再是居中弹窗），页面自身即整屏，遮罩背景无意义已去掉 */
 .ex-settings { position:fixed; inset:0; width:100%; height:100%; z-index:2000; background:var(--ex-bg); display:flex; flex-direction:column; overflow:hidden; color:var(--ex-text); }
 /* 固定头部：永远在页面顶部，不随内容滚动（返回按钮左侧 + 保存按钮右侧常驻） */
@@ -714,6 +719,21 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         </div>
       </div>
     </div>
+    <!-- 编辑消息弹窗（v0.0.69，APITOOL editModal 同款：textarea 预填旧文本 + 取消/保存） -->
+    <div class="ex-modal" data-ex="edit-modal">
+      <div class="ex-edit-modal">
+        <div class="ex-settings-head">
+          <div class="ex-settings-head-left">
+            <button type="button" class="ex-settings-back" data-ex="editClose" title="返回">←</button>
+            <h2 data-ex="edit-title">编辑消息</h2>
+          </div>
+          <button type="button" class="ex-save-btn" data-ex="editSave">保存</button>
+        </div>
+        <div class="ex-edit-body">
+          <textarea class="ex-edit-textarea" data-ex="edit-textarea" spellcheck="true"></textarea>
+        </div>
+      </div>
+    </div>
     <!-- 模型下拉（右上角模型名点击展开：自动检测模型列表 + 自定义输入） -->
     <div class="ex-model-pop" data-ex="model-pop">
       <div class="ex-model-pop-head">选择模型</div>
@@ -1073,6 +1093,53 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   function closeChangelog(): void {
     container.querySelector('[data-ex="changelog-modal"]')?.classList.remove('show');
   }
+
+  // ---- 编辑消息弹窗（v0.0.69，APITOOL editModal 同款：预填旧文本 + Promise 回调，M12 防泄漏） ----
+  let editModalCallback: ((text: string | null) => void) | null = null;
+  function showEditModal(content: string, title = '编辑消息'): Promise<string | null> {
+    const modal = container.querySelector('[data-ex="edit-modal"]') as HTMLElement | null;
+    const ta = container.querySelector('[data-ex="edit-textarea"]') as HTMLTextAreaElement | null;
+    const titleEl = container.querySelector('[data-ex="edit-title"]') as HTMLElement | null;
+    if (!modal || !ta) return Promise.resolve(null);
+    // M12：打开新弹窗前放弃旧的挂起编辑（防 Promise 泄漏/前次编辑静默丢弃）
+    if (editModalCallback) {
+      const old = editModalCallback;
+      editModalCallback = null;
+      old(null);
+    }
+    if (titleEl) titleEl.textContent = title;
+    ta.value = content; // 保留上一轮用户输入，便于修改
+    modal.classList.add('show');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length); // 光标移到末尾
+    return new Promise((resolve) => {
+      editModalCallback = resolve;
+    });
+  }
+  function closeEditModal(): void {
+    const modal = container.querySelector('[data-ex="edit-modal"]') as HTMLElement | null;
+    modal?.classList.remove('show');
+    const cb = editModalCallback;
+    editModalCallback = null;
+    if (cb) cb(null); // 取消/关闭 → null（调用方放弃）
+  }
+  function saveEditModal(): void {
+    const modal = container.querySelector('[data-ex="edit-modal"]') as HTMLElement | null;
+    const ta = container.querySelector('[data-ex="edit-textarea"]') as HTMLTextAreaElement | null;
+    modal?.classList.remove('show');
+    const cb = editModalCallback;
+    editModalCallback = null;
+    if (cb) cb(ta?.value ?? null);
+  }
+  // 编辑弹窗按钮：取消（返回）/ 保存 / 点遮罩关闭
+  const editCloseBtn = container.querySelector('[data-ex="editClose"]') as HTMLElement | null;
+  editCloseBtn?.addEventListener('click', closeEditModal);
+  const editSaveBtn = container.querySelector('[data-ex="editSave"]') as HTMLElement | null;
+  editSaveBtn?.addEventListener('click', saveEditModal);
+  const editModalEl = container.querySelector('[data-ex="edit-modal"]') as HTMLElement | null;
+  editModalEl?.addEventListener('click', (e) => {
+    if (e.target === editModalEl) closeEditModal();
+  });
 
   function openSettings(tab?: string): void {
     // 渲染服务商极简配置（profile-config 分节：选卡/填 Key/自动检测模型/高级折叠）
@@ -1977,7 +2044,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         branch.className = 'ex-msg-branch';
         const prevBtn = document.createElement('button');
         prevBtn.className = 'ex-msg-arrow';
-        prevBtn.textContent = '←';
+        prevBtn.textContent = '<';
         prevBtn.title = '上一个候选';
         prevBtn.disabled = snap.selectIndex <= 0;
         prevBtn.addEventListener('click', () => {
@@ -1988,7 +2055,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         count.textContent = `${snap.selectIndex + 1}/${snap.candidateCount}`;
         const nextBtn = document.createElement('button');
         nextBtn.className = 'ex-msg-arrow';
-        nextBtn.textContent = '→';
+        nextBtn.textContent = '>';
         nextBtn.title = '下一个候选';
         nextBtn.disabled = snap.selectIndex >= snap.candidateCount - 1;
         nextBtn.addEventListener('click', () => {
@@ -2023,10 +2090,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         editBtn.title = role === 'user' ? '编辑此消息并重新生成回复' : '就地编辑此回复（不重发）';
         editBtn.addEventListener('click', () => {
           const oldText = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
-          const next = window.prompt(role === 'user' ? '编辑用户消息（保存后重新生成回复）：' : '编辑 AI 回复（保存后使用修改后的内容，不重发）：', oldText);
-          if (next === null || !next.trim()) return;
-          if (role === 'user') controller.editUserMessage(message.id, next);
-          else controller.editAiMessage(message.id, next);
+          // v0.0.69：专用编辑弹窗（保留上一轮输入便于修改），不再用 window.prompt
+          void showEditModal(oldText, role === 'user' ? '编辑消息（保存后重新生成回复）' : '编辑 AI 回复（保存后使用修改后的内容）').then((next) => {
+            if (next === null || !next.trim()) return;
+            if (role === 'user') controller.editUserMessage(message.id, next);
+            else controller.editAiMessage(message.id, next);
+          });
         });
         tools.appendChild(editBtn);
       }
@@ -2061,6 +2130,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     onSendAccepted: () => {
       pendingImages = [];
       fileIndicator.textContent = '';
+    },
+    // 联网搜索状态（v0.0.69，APITOOL 同款右上角提示）
+    onWebSearch: (state) => {
+      showToast(state === 'searching' ? '联网搜索中...' : '搜索完成');
     },
   });
 
@@ -2471,9 +2544,18 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         return;
       }
       if (manageMode) {
-        // 管理态：点击卡片退出管理模式并切换会话（APITOOL 风格：管理是临时态，其他操作自动退出）
-        if (cb || delBtn) return; // checkbox/× 已处理
-        exitManageIfActive();
+        // 管理态：点击整张卡片 = 切换选中（checkbox 视觉同步）；× 已在上面处理
+        if (cb || delBtn) return;
+        const item = target.closest('[data-ex-switch]') as HTMLElement | null;
+        if (!item?.dataset.exSwitch) return;
+        const id = item.dataset.exSwitch;
+        if (manageSelected.has(id)) manageSelected.delete(id);
+        else manageSelected.add(id);
+        item.classList.toggle('manage-selected', manageSelected.has(id));
+        const box = item.querySelector<HTMLInputElement>('[data-ex-manage-check]');
+        if (box) box.checked = manageSelected.has(id);
+        updateManageBar();
+        return;
       }
       const item = (target).closest('[data-ex-switch]') as HTMLElement | null;
       if (item && item.dataset.exSwitch) {

@@ -110,6 +110,8 @@ export interface ChatStreamHandlers {
   /** 可选：流结束收到 usage（token 统计；chat/completions 需 stream_options.include_usage，responses 在 completed 事件，claude 在 message_start/message_delta）
    *  cacheInputTokens：输入中命中缓存的 token 数（v0.0.67 缓存命中统计；chat=prompt_cache_hit_tokens，responses=input_tokens_details.cached_tokens，claude=cache_read_input_tokens） */
   onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number; cacheInputTokens?: number }): void;
+  /** 可选：联网搜索状态（v0.0.69，APITOOL 同款右上角提示）：searching=模型发起搜索，completed=搜索完成 */
+  onWebSearch?(state: 'searching' | 'completed'): void;
 }
 
 /** 会话级用量统计（v0.0.65：计费卡数据源，随会话落盘） */
