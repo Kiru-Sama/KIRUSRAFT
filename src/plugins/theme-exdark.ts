@@ -1992,6 +1992,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
 
   // ---- 聊天状态机（共享控制器） ----
   let lastAiBubble: HTMLElement | null = null;
+  /** 用户主动上滚标志（v0.0.76）：流式自动滚动尊重用户——上滚看历史就停止跟随，滚回底部恢复 */
+  let userScrolledUp = false;
   // 待发送图片（多模态 v0.0.64）：选择后暂存，随下一条消息发送；发送真正放行（onSendAccepted）后清空
   let pendingImages: UIMessagePart[] = [];
   /** 图片压缩处理中计数：>0 时拒绝发送（防止压缩未完成时漏发到下一轮） */
@@ -2217,10 +2219,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         if (actions) actions.style.display = '';
       }
     },
-    // 流式自动滚动（v0.0.72）：用户未上滚（距底 <120px）才跟随到底；上滚看历史不被打断（成熟 chat 同款）
+    // 流式自动滚动（v0.0.76 成熟 chat 做法）：用户主动上滚 = 停止自动跟随（记录标志）；
+    // 用户滚回底部 = 恢复跟随。不再只按"距底距离"判断（那会拽用户）
     autoScroll: () => {
-      const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
-      if (nearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (userScrolledUp) return; // 用户正在看历史，不打扰
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     },
     // 发送校验通过、开始流式：清空待发送图片（校验失败时不清，附件保留可重发）
     onSendAccepted: () => {
@@ -2791,6 +2794,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     });
     // 菜单项点击
     convMenu?.addEventListener('click', (e) => {
+      // v0.0.76：必须 stopPropagation——convMenu 在 .ex-app 外（fixed），点菜单项冒泡到 document 会被
+      // "管理态点侧边栏外退出"监听（manageMode=false）瞬间复位，导致点"管理"无反应（子代理审查定位）
+      e.stopPropagation();
       const btn = (e.target as HTMLElement).closest('[data-ex-menu-action]') as HTMLElement | null;
       const id = convMenu.dataset.convId;
       if (!btn || !id) return;
@@ -2924,8 +2930,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       void renderSessionList(controller.getSessionId());
     });
     // v0.0.70：管理态点侧边栏外任意处 → 退出管理模式（管理是临时态，点无关区域就该收）
+    // v0.0.76：排除 convMenu 内点击（点在长按菜单上不算"点侧边栏外"）
     document.addEventListener('click', (e) => {
       if (!manageMode) return;
+      if (convMenu?.contains(e.target as Node)) return;
       const insideSidebar = sidebar.contains(e.target as Node);
       if (!insideSidebar) {
         manageMode = false;
@@ -3334,6 +3342,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     const guideObserver = new MutationObserver(syncEmptyGuide);
     guideObserver.observe(messagesEl, { childList: true });
     syncEmptyGuide();
+    // v0.0.76：用户滚动意图——离底部>阈值=上滚看历史（停止自动跟随）；滚回底部=恢复
+    const onMessagesScroll = (): void => {
+      const distToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+      userScrolledUp = distToBottom > 80;
+    };
+    messagesEl.addEventListener('scroll', onMessagesScroll);
 
     // 初次渲染会话列表
     void renderSessionList(controller.getSessionId());
@@ -3343,6 +3357,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       stopParallax();
       offModel();
       guideObserver.disconnect();
+      messagesEl.removeEventListener('scroll', onMessagesScroll);
       document.removeEventListener('click', closeMoreMenu);
       controller.dispose();
       container.remove();
