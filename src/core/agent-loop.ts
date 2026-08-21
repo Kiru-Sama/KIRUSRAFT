@@ -24,18 +24,43 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
   const maxSteps = options.maxSteps ?? 8;
   const input: Record<string, unknown>[] = options.request.input
     ? [...options.request.input]
-    : (options.request.messages ?? []).map((m) => ({
-        role: m.role,
-        content: Array.isArray(m.content)
-          ? m.content.map((p): Record<string, unknown> =>
-              p.type === 'text'
-                ? { type: 'input_text', text: p.text }
-                : p.type === 'image'
-                  ? { type: 'input_image', image_url: p.imageUrl }
-                  : { type: 'reasoning_text', text: p.text }, // v0.0.78 reasoning 回传
-            )
-          : [{ type: 'input_text', text: m.content }],
-      }));
+    : (() => {
+        const result: Record<string, unknown>[] = [];
+        for (const m of options.request.messages ?? []) {
+          const contentParts: { type: string; text?: string; imageUrl?: string }[] = [];
+          const reasoningParts: { text: string }[] = [];
+          if (Array.isArray(m.content)) {
+            for (const p of m.content) {
+              if (p.type === 'reasoning') {
+                reasoningParts.push({ text: p.text });
+              } else {
+                contentParts.push(p);
+              }
+            }
+          }
+          // 消息条目（不含 reasoning）
+          if (contentParts.length > 0 || typeof m.content === 'string') {
+            result.push({
+              role: m.role,
+              content: contentParts.length > 0
+                ? contentParts.map((p) =>
+                    p.type === 'text'
+                      ? { type: 'input_text', text: p.text }
+                      : { type: 'input_image', image_url: p.imageUrl },
+                  )
+                : [{ type: 'input_text', text: m.content as string }],
+            });
+          }
+          // reasoning 独立顶层条目（Responses API 格式，RikkaHub ResponseAPI.kt:345-402）
+          for (const rp of reasoningParts) {
+            result.push({
+              type: 'reasoning',
+              content: [{ type: 'reasoning_text', text: rp.text }],
+            });
+          }
+        }
+        return result;
+      })();
 
   // 工具声明：已注册的 function 工具 + 可选服务端 web_search
   const functionTools = options.tools.declarations();

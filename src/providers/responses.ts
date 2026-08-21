@@ -23,21 +23,46 @@ function parseSseEvent(line: string): { data: unknown } | null {
 }
 
 /** 构造 Responses input：普通消息数组或完整 input（工具循环用）。
- *  content 字符串→input_text；部件数组→text→input_text、image→input_image、reasoning→reasoning_text（v0.0.78 DeepSeek thinking 续写必须回传） */
+ *  content 字符串→input_text；部件数组→text→input_text/output_text、image→input_image。
+ *  reasoning（v0.0.80）为独立顶层 input 条目 {type:"reasoning", content:[{type:"reasoning_text", text}]}，不嵌入消息 content。
+ *  assistant 消息用 output_text（RikkaHub ResponseAPI.kt:512 规范）。 */
 function buildInput(request: ChatRequest): ResponsesInputItem[] {
   if (request.input && request.input.length > 0) return request.input;
-  return (request.messages ?? []).map((m) => ({
-    role: m.role,
-    content: Array.isArray(m.content)
-      ? m.content.map((p): Record<string, unknown> =>
-          p.type === 'text'
-            ? { type: 'input_text', text: p.text }
-            : p.type === 'image'
-              ? { type: 'input_image', image_url: p.imageUrl }
-              : { type: 'reasoning_text', text: p.text },
-        )
-      : [{ type: 'input_text', text: m.content }],
-  }));
+  const result: ResponsesInputItem[] = [];
+  for (const m of request.messages ?? []) {
+    const contentParts: { type: string; text?: string; imageUrl?: string }[] = [];
+    const reasoningParts: { text: string }[] = [];
+    if (Array.isArray(m.content)) {
+      for (const p of m.content) {
+        if (p.type === 'reasoning') {
+          reasoningParts.push({ text: p.text });
+        } else {
+          contentParts.push(p);
+        }
+      }
+    }
+    // 消息条目（含文本/图片，不含 reasoning）
+    if (contentParts.length > 0 || typeof m.content === 'string') {
+      result.push({
+        role: m.role,
+        content: Array.isArray(m.content)
+          ? contentParts.map((p) =>
+              p.type === 'text'
+                ? { type: m.role === 'user' ? 'input_text' : 'output_text', text: p.text }
+                : { type: 'input_image', image_url: p.imageUrl },
+            )
+          : [{ type: m.role === 'user' ? 'input_text' : 'output_text', text: m.content }],
+      });
+    }
+    // reasoning 独立条目（assistant 后才跟，RikkaHub ResponseAPI.kt:345-402）
+    for (const rp of reasoningParts) {
+      result.push({
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: rp.text }],
+      });
+    }
+  }
+  return result;
 }
 
 /** 思考强度档位 → Responses reasoning.effort（RikkaHub ResponseAPI 233-249：AUTO 省略 effort；
