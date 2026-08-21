@@ -51,6 +51,7 @@ interface ProotApi {
   executeCommand(options: { workspaceId: string; command: string; cwd?: string; timeout?: number; stdin?: string }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   createWorkspace(options: { name: string }): Promise<{ id: string }>;
   deleteWorkspace(options: { id: string }): Promise<void>;
+  renameWorkspace?(options: { id: string; name: string }): Promise<void>;
   installRootfs(options: { workspaceId: string; url?: string }): Promise<{ progress: number; stage: string }>;
   patchRootfs(options: { workspaceId: string }): Promise<void>;
   readFile(options: { workspaceId: string; path: string }): Promise<{ content: string }>;
@@ -100,6 +101,33 @@ export function apply(ctx: Context): void {
       list.push(ws);
       saveWorkspaces(list);
       return [{ type: 'text', text: `工作区已创建\nID: ${ws.id}\n名称: ${name}` }];
+    },
+  });
+
+  ctx.tools.register(ctx, {
+    name: 'workspace_rename',
+    description: '重命名沙箱工作区',
+    parameters: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: '工作区 ID' },
+        name: { type: 'string', description: '新名称（字母数字._-）' },
+      },
+      required: ['workspaceId', 'name'],
+    },
+    async execute(args) {
+      const id = String(args.workspaceId);
+      const name = String(args.name ?? '').replace(/[^A-Za-z0-9._-]/g, '_').trim();
+      if (!name) return [{ type: 'text', text: '名称不能为空' }];
+      const proot = getProot();
+      if (proot?.renameWorkspace) await proot.renameWorkspace({ id, name });
+      else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
+      const list = loadWorkspaces();
+      const ws = list.find((w) => w.id === id);
+      if (!ws) return [{ type: 'text', text: `工作区 ${id} 不存在` }];
+      ws.name = name;
+      saveWorkspaces(list);
+      return [{ type: 'text', text: `工作区已重命名\nID: ${id}\n新名称: ${name}` }];
     },
   });
 

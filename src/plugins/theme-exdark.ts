@@ -646,36 +646,101 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-tool-desc { font-size:11px; color:var(--ex-text2); margin-top:6px; line-height:1.5; word-break:break-all; }
 .ex-tool-params { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
 .ex-tool-chip { font-size:9px; padding:1px 6px; border:1px solid var(--ex-border2); color:var(--ex-accent); }
-/* 沙箱管理独立页（全屏浮层；工作区 + 可视化文件树） */
+/* 沙箱管理三页（v0.0.87 对齐 RikkaHub WorkspacePage/DetailPage/TerminalPage：列表 + 详情[Basic/Files] + 终端） */
 .ex-sandbox-manage { display:none; position:fixed; inset:0; z-index:5000; background:var(--ex-bg); flex-direction:column; overflow:hidden; color:var(--ex-text); }
 .ex-sandbox-manage.show { display:flex; }
-.ex-sandbox-manage-head { display:flex; align-items:center; gap:10px; flex-shrink:0; padding:calc(14px + env(safe-area-inset-top,0px)) 20px 14px; background:var(--ex-surface); border-bottom:1px solid var(--ex-border); }
-.ex-sandbox-manage-head h2 { margin:0; font-size:18px; color:var(--ex-accent); letter-spacing:2px; font-weight:900; }
-.ex-sandbox-manage-body { flex:1; overflow-y:auto; padding:20px 24px 40px; min-height:0; }
-.ex-sandbox-file-row { display:flex; gap:8px; padding:10px 0; }
-.ex-sandbox-file-row input { flex:1; min-width:0; padding:8px 10px; background:var(--ex-bg); border:1px solid var(--ex-border2); color:var(--ex-text); font-size:12px; font-family:var(--ex-font); }
-.ex-sandbox-file-row button { flex-shrink:0; }
-.ex-sandbox-wslist { display:flex; flex-direction:column; gap:6px; }
-/* 工作区列表（v0.0.85 对齐 RikkaHub WorkspaceSelectSheet 的 ListItem：图标+名称+状态副标题+选中勾+高亮圆角） */
-.ex-sandbox-ws-item { display:flex; align-items:center; gap:12px; width:100%; padding:10px 12px; background:transparent; border:1px solid transparent; border-radius:10px; color:var(--ex-text); cursor:pointer; font-family:var(--ex-font); font-size:12px; text-align:left; transition:background .15s; }
-.ex-sandbox-ws-item:hover { background:var(--ex-surface); }
-.ex-sandbox-ws-item.active { background:var(--ex-surface2); border-color:var(--ex-border2); }
-.ex-sandbox-ws-icon { flex-shrink:0; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; color:var(--ex-accent2); }
-.ex-sandbox-ws-icon svg { width:18px; height:18px; }
-.ex-sandbox-ws-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
-.ex-sandbox-ws-name { font-size:13px; font-weight:700; color:var(--ex-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ex-sb-page { display:flex; flex-direction:column; flex:1; min-height:0; }
+.ex-sb-page[hidden] { display:none; }
+.ex-sb-topbar { display:flex; align-items:center; gap:10px; flex-shrink:0; padding:calc(14px + env(safe-area-inset-top,0px)) 20px 14px; background:var(--ex-surface); border-bottom:1px solid var(--ex-border); }
+.ex-sb-topbar h2 { margin:0; font-size:17px; color:var(--ex-text); font-weight:800; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ex-sb-topbar-spacer { width:36px; flex-shrink:0; }
+.ex-sb-topbar-actions { display:flex; gap:6px; flex-shrink:0; }
+.ex-sb-topbar-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:11px; padding:2px 9px; cursor:pointer; font-family:var(--ex-font); border-radius:6px; }
+.ex-sb-topbar-btn:hover { border-color:var(--ex-accent); color:var(--ex-accent); }
+.ex-sb-body { flex:1; overflow-y:auto; padding:16px 20px 30px; min-height:0; }
+.ex-sb-tabbar { display:flex; border-top:1px solid var(--ex-border); background:var(--ex-surface); flex-shrink:0; }
+.ex-sb-tabbar button { flex:1; padding:10px 0; background:none; border:none; color:var(--ex-text3); font-size:12px; font-family:var(--ex-font); cursor:pointer; font-weight:700; }
+.ex-sb-tabbar button.active { color:var(--ex-accent); box-shadow:inset 0 -2px 0 var(--ex-accent); }
+.ex-sb-card { background:var(--ex-surface); border:1px solid var(--ex-border); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+.ex-sb-card-title { font-size:12px; font-weight:800; color:var(--ex-accent); margin-bottom:8px; }
+.ex-sb-row { display:flex; justify-content:space-between; gap:10px; padding:4px 0; font-size:12px; }
+.ex-sb-row-label { color:var(--ex-text3); }
+.ex-sb-row-value { color:var(--ex-text); word-break:break-all; text-align:right; }
+.ex-sb-rootfs { display:flex; align-items:center; gap:10px; }
+.ex-sb-rootfs-state { font-size:11px; padding:1px 8px; border-radius:8px; border:1px solid var(--ex-border2); color:var(--ex-text3); }
+.ex-sb-rootfs-state.installed { color:var(--ex-accent); border-color:var(--ex-accent); }
+.ex-sb-rootfs-progress { margin-top:8px; font-size:11px; color:var(--ex-accent2); }
+.ex-sb-toggle-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; font-size:12px; }
+.ex-sb-toggle-row input { accent-color:var(--ex-accent); }
+.ex-sb-segment { display:flex; background:var(--ex-surface2); border-radius:8px; padding:3px; margin-bottom:10px; }
+.ex-sb-segment button { flex:1; padding:5px 0; background:none; border:none; color:var(--ex-text3); font-size:12px; font-family:var(--ex-font); border-radius:6px; cursor:pointer; font-weight:700; }
+.ex-sb-segment button.active { background:var(--ex-surface); color:var(--ex-text); box-shadow:0 1px 3px rgba(0,0,0,.3); }
+.ex-sb-pathbar { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.ex-sb-path-up { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); width:24px; height:24px; cursor:pointer; border-radius:6px; font-size:11px; }
+.ex-sb-path-up:hover { border-color:var(--ex-accent); color:var(--ex-accent); }
+.ex-sb-path { font-size:11px; color:var(--ex-text2); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* FAB（对齐 RikkaHub FloatingActionButton） */
+.ex-sb-fab { position:absolute; right:20px; bottom:20px; width:48px; height:48px; border-radius:50%; background:var(--ex-accent); color:var(--ex-bg); border:none; font-size:22px; font-weight:900; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.35); z-index:10; }
+.ex-sb-fab:hover { filter:brightness(1.1); }
+/* 工作区列表卡片（对齐 RikkaHub WorkspaceCard：图标+名称+状态+三点菜单） */
+.ex-sandbox-wslist { display:flex; flex-direction:column; gap:10px; }
+.ex-sandbox-ws-item { display:flex; align-items:center; gap:12px; width:100%; padding:12px 10px 12px 14px; background:var(--ex-surface); border:1px solid var(--ex-border); border-radius:10px; color:var(--ex-text); cursor:pointer; font-family:var(--ex-font); font-size:12px; text-align:left; transition:background .15s; }
+.ex-sandbox-ws-item:hover { background:var(--ex-surface2); }
+.ex-sandbox-ws-icon { flex-shrink:0; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; color:var(--ex-accent); }
+.ex-sandbox-ws-icon svg { width:20px; height:20px; }
+.ex-sandbox-ws-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.ex-sandbox-ws-name { font-size:14px; font-weight:700; color:var(--ex-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .ex-sandbox-ws-id { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ex-sandbox-ws-check { flex-shrink:0; width:18px; font-size:12px; color:var(--ex-accent); font-weight:900; text-align:center; }
-.ex-sandbox-ws-state { font-size:10px; flex-shrink:0; }
-.ex-sandbox-tree { margin-top:8px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; color:var(--ex-text); }
+.ex-sandbox-ws-menu { flex-shrink:0; background:none; border:none; color:var(--ex-text3); font-size:15px; padding:2px 8px; cursor:pointer; font-weight:900; }
+.ex-sandbox-ws-menu:hover { color:var(--ex-accent); }
+/* 工作区卡片菜单弹层（重命名/删除，对齐 RikkaHub DropdownMenu） */
+.ex-sb-ws-menu-pop { position:fixed; z-index:5100; background:var(--ex-surface); border:1px solid var(--ex-border2); border-radius:8px; padding:4px; box-shadow:0 4px 14px rgba(0,0,0,.4); min-width:130px; }
+.ex-sb-ws-menu-pop button { display:flex; align-items:center; gap:8px; width:100%; padding:7px 10px; background:none; border:none; color:var(--ex-text); font-size:12px; font-family:var(--ex-font); cursor:pointer; border-radius:5px; text-align:left; }
+.ex-sb-ws-menu-pop button:hover { background:var(--ex-surface2); }
+.ex-sb-ws-menu-pop button.danger { color:#e5484d; }
+/* 文件树（保留） */
+.ex-sandbox-tree { margin-top:4px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; color:var(--ex-text); }
 .ex-sandbox-tree-item { padding:4px 0; cursor:default; display:flex; align-items:center; gap:6px; }
 .ex-sandbox-tree-item.dir { cursor:pointer; color:var(--ex-accent); }
 .ex-sandbox-tree-item.dir:hover { background:var(--ex-surface2); }
+/* v0.0.87 选中态：文件行点击查看时高亮（RikkaHub 列表选中风格：圆角背景 + accent 左竖条） */
+.ex-sandbox-tree-item.selected { background:var(--ex-surface2); border-radius:6px; box-shadow:inset 2px 0 0 var(--ex-accent); }
 .ex-sandbox-tree-icon { flex-shrink:0; width:14px; color:var(--ex-accent2); }
 .ex-sandbox-tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ex-sandbox-tree-size { margin-left:auto; font-size:10px; color:var(--ex-text3); }
 .ex-sandbox-tree-children { border-left:1px solid var(--ex-border2); margin-left:6px; padding-left:4px; }
-@media (max-width:768px){ .ex-sandbox-manage-body { padding:16px 14px 40px; } }
+/* 文件内容查看/编辑 */
+.ex-sandbox-fileview { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.ex-sandbox-fileview-path { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; word-break:break-all; }
+.ex-sandbox-fileview textarea { width:100%; min-height:160px; background:var(--ex-bg); border:1px solid var(--ex-border2); color:var(--ex-text); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; padding:8px; resize:vertical; }
+.ex-sandbox-fileview textarea:focus { outline:none; border-color:var(--ex-accent); }
+.ex-sandbox-fileview-actions { display:flex; align-items:center; gap:10px; }
+.ex-sandbox-fileview-actions span { font-size:10px; color:var(--ex-text3); }
+/* 终端（对齐 RikkaHub WorkspaceTerminalPage：深色底 + 输入行 + 按键栏） */
+.ex-sb-terminal { background:#0d1117; }
+.ex-sb-terminal .ex-sb-topbar { background:#161b22; border-bottom-color:#21262d; }
+.ex-sb-terminal .ex-sb-topbar h2 { color:#e6edf3; }
+.ex-sb-term-out { flex:1; overflow-y:auto; padding:12px 14px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; color:#c9d1d9; white-space:pre-wrap; word-break:break-word; min-height:0; }
+.ex-sb-term-hint { color:#484f58; }
+.ex-sb-term-input-row { display:flex; gap:8px; padding:8px 14px; border-top:1px solid #21262d; flex-shrink:0; }
+.ex-sb-term-input-row input { flex:1; min-width:0; background:#0d1117; border:1px solid #30363d; color:#e6edf3; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; padding:8px 10px; }
+.ex-sb-term-input-row input:focus { outline:none; border-color:var(--ex-accent); }
+.ex-sb-term-keys { display:flex; gap:6px; padding:0 14px 14px; flex-shrink:0; flex-wrap:wrap; }
+.ex-sb-term-keys button { background:#161b22; border:1px solid #30363d; color:#8b949e; font-size:10px; padding:4px 9px; cursor:pointer; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.ex-sb-term-keys button:hover { border-color:var(--ex-accent); color:#e6edf3; }
+/* 对话框（创建/重命名/删除确认） */
+.ex-sb-dialog { position:fixed; inset:0; z-index:5200; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; }
+.ex-sb-dialog[hidden] { display:none; }
+.ex-sb-dialog-box { background:var(--ex-surface); border:1px solid var(--ex-border2); border-radius:12px; padding:18px 20px; width:min(320px,86vw); }
+.ex-sb-dialog-box h3 { margin:0 0 12px; font-size:15px; color:var(--ex-text); }
+.ex-sb-dialog-box input { width:100%; padding:8px 10px; background:var(--ex-bg); border:1px solid var(--ex-border2); color:var(--ex-text); font-size:13px; font-family:var(--ex-font); box-sizing:border-box; }
+.ex-sb-dialog-box input:focus { outline:none; border-color:var(--ex-accent); }
+.ex-sb-dialog-err { margin-top:6px; font-size:11px; color:#e5484d; }
+.ex-sb-dialog-tip { margin:0 0 12px; font-size:12px; color:var(--ex-text2); }
+.ex-sb-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.ex-manage-btn.primary { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); font-weight:900; }
+.ex-manage-btn.danger { background:transparent; color:#e5484d; border-color:#e5484d; }
+@media (max-width:768px){ .ex-sb-body { padding:14px 14px 24px; } }
 @media (max-width:768px){ .ex-tool-grid { grid-template-columns:1fr; } }
 .ex-plugin-detail { display:none; padding:0 14px 12px; border-top:2px solid var(--ex-border); }
 .ex-plugin-card.open .ex-plugin-detail { display:block; }
@@ -1078,17 +1143,120 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         </div>
       </div>
     </div>
-    <!-- 沙箱管理独立页（工作区 + 可视化文件树，参考 RikkaHub） -->
+    <!-- 沙箱管理三页（v0.0.87 对齐 RikkaHub WorkspacePage/DetailPage/TerminalPage：列表页 + 详情页[Basic/Files] + 终端页） -->
     <div class="ex-sandbox-manage" data-ex="sandbox-manage">
-      <div class="ex-sandbox-manage-head">
-        <button type="button" class="ex-settings-back" data-ex="sandboxBack" title="返回">←</button>
-        <h2>沙箱管理</h2>
+      <!-- 页1：工作区列表 -->
+      <section class="ex-sb-page" data-ex="sb-page-list">
+        <div class="ex-sb-topbar">
+          <button type="button" class="ex-settings-back" data-ex="sandboxBack" title="返回">←</button>
+          <h2>工作区</h2>
+          <span class="ex-sb-topbar-spacer"></span>
+        </div>
+        <div class="ex-sb-body">
+          <div class="ex-sandbox-wslist" data-ex="sandbox-wslist">加载中...</div>
+        </div>
+        <button type="button" class="ex-sb-fab" data-ex="sb-add" title="创建工作区">+</button>
+      </section>
+      <!-- 页2：工作区详情 -->
+      <section class="ex-sb-page" data-ex="sb-page-detail" hidden>
+        <div class="ex-sb-topbar">
+          <button type="button" class="ex-settings-back" data-ex="sb-detail-back" title="返回">←</button>
+          <h2 data-ex="sb-detail-title">工作区</h2>
+          <div class="ex-sb-topbar-actions">
+            <button type="button" class="ex-sb-topbar-btn" data-ex="sb-import" title="导入文件到当前目录">导入</button>
+            <button type="button" class="ex-sb-topbar-btn" data-ex="sb-terminal" title="终端">终端</button>
+            <button type="button" class="ex-sb-topbar-btn" data-ex="sb-refresh" title="刷新">刷新</button>
+          </div>
+          <input type="file" data-ex="sb-import-file" multiple hidden />
+        </div>
+        <div class="ex-sb-body">
+          <!-- Basic tab：信息 + rootfs + 工具审批 -->
+          <div data-ex="sb-tab-basic">
+            <div class="ex-sb-card">
+              <div class="ex-sb-card-title">信息</div>
+              <div class="ex-sb-row"><span class="ex-sb-row-label">名称</span><span class="ex-sb-row-value" data-ex="sb-info-name">-</span></div>
+              <div class="ex-sb-row"><span class="ex-sb-row-label">ID</span><span class="ex-sb-row-value" data-ex="sb-info-id">-</span></div>
+              <div class="ex-sb-row"><span class="ex-sb-row-label">Shell 状态</span><span class="ex-sb-row-value" data-ex="sb-info-shell">-</span></div>
+            </div>
+            <div class="ex-sb-card">
+              <div class="ex-sb-card-title">Rootfs</div>
+              <div class="ex-sb-rootfs">
+                <span class="ex-sb-rootfs-state" data-ex="sb-rootfs-state">未安装</span>
+                <button type="button" class="ex-manage-btn" data-ex="sb-rootfs-install">安装 rootfs</button>
+              </div>
+              <div class="ex-sb-rootfs-progress" data-ex="sb-rootfs-progress" hidden>安装中...</div>
+            </div>
+            <div class="ex-sb-card">
+              <div class="ex-sb-card-title">工具审批</div>
+              <div class="ex-sb-toggle-row"><span>读取文件</span><input type="checkbox" data-ex="sb-appr-read" /></div>
+              <div class="ex-sb-toggle-row"><span>写入文件</span><input type="checkbox" data-ex="sb-appr-write" /></div>
+              <div class="ex-sb-toggle-row"><span>Shell</span><input type="checkbox" data-ex="sb-appr-shell" /></div>
+            </div>
+          </div>
+          <!-- Files tab：Files/Rootfs 分段 + 路径栏 + 文件树 -->
+          <div data-ex="sb-tab-files" hidden>
+            <div class="ex-sb-segment">
+              <button type="button" class="active" data-ex="sb-seg-files">Files</button>
+              <button type="button" data-ex="sb-seg-rootfs">Rootfs</button>
+            </div>
+            <div class="ex-sb-pathbar">
+              <button type="button" class="ex-sb-path-up" data-ex="sb-path-up" title="上一级">←</button>
+              <span class="ex-sb-path" data-ex="sb-path">/workspace</span>
+            </div>
+            <div class="ex-sandbox-tree" data-ex="sandbox-tree">选择工作区查看文件树</div>
+            <div class="ex-sandbox-fileview" data-ex="sandbox-fileview">点击文件查看/编辑内容</div>
+          </div>
+        </div>
+        <div class="ex-sb-tabbar">
+          <button type="button" class="active" data-ex="sb-tab-basic-btn">基础</button>
+          <button type="button" data-ex="sb-tab-files-btn">文件</button>
+        </div>
+      </section>
+      <!-- 页3：终端 -->
+      <section class="ex-sb-page ex-sb-terminal" data-ex="sb-page-term" hidden>
+        <div class="ex-sb-topbar">
+          <button type="button" class="ex-settings-back" data-ex="sb-term-back" title="返回">←</button>
+          <h2 data-ex="sb-term-title">终端</h2>
+          <span class="ex-sb-topbar-spacer"></span>
+        </div>
+        <div class="ex-sb-term-out" data-ex="sb-term-out"><span class="ex-sb-term-hint">输入命令开始（如 ls /workspace）</span></div>
+        <div class="ex-sb-term-input-row">
+          <input type="text" data-ex="sb-term-input" spellcheck="false" placeholder="输入命令" />
+          <button type="button" class="ex-manage-btn" data-ex="sb-term-run">执行</button>
+        </div>
+        <div class="ex-sb-term-keys">
+          <button type="button" data-ex="sb-key-esc">ESC</button>
+          <button type="button" data-ex="sb-key-tab">TAB</button>
+          <button type="button" data-ex="sb-key-ctrl">CTRL</button>
+          <button type="button" data-ex="sb-key-alt">ALT</button>
+          <button type="button" data-ex="sb-key-up">↑</button>
+          <button type="button" data-ex="sb-key-down">↓</button>
+          <button type="button" data-ex="sb-key-left">←</button>
+          <button type="button" data-ex="sb-key-right">→</button>
+        </div>
+      </section>
+      <!-- 创建/重命名对话框 -->
+      <div class="ex-sb-dialog" data-ex="sb-name-dialog" hidden>
+        <div class="ex-sb-dialog-box">
+          <h3 data-ex="sb-name-dialog-title">创建</h3>
+          <input type="text" data-ex="sb-name-input" spellcheck="false" placeholder="工作区名称" />
+          <div class="ex-sb-dialog-err" data-ex="sb-name-err" hidden>名称已存在</div>
+          <div class="ex-sb-dialog-actions">
+            <button type="button" class="ex-manage-btn" data-ex="sb-name-cancel">取消</button>
+            <button type="button" class="ex-manage-btn primary" data-ex="sb-name-ok">保存</button>
+          </div>
+        </div>
       </div>
-      <div class="ex-sandbox-manage-body">
-        <div class="ex-section-title">工作区</div>
-        <div class="ex-sandbox-wslist" data-ex="sandbox-wslist">加载中...</div>
-        <div class="ex-section-title">文件</div>
-        <div class="ex-sandbox-tree" data-ex="sandbox-tree">选择工作区查看文件树</div>
+      <!-- 删除确认对话框 -->
+      <div class="ex-sb-dialog" data-ex="sb-del-dialog" hidden>
+        <div class="ex-sb-dialog-box">
+          <h3>删除工作区</h3>
+          <p class="ex-sb-dialog-tip">删除后不可恢复，确认删除该工作区？</p>
+          <div class="ex-sb-dialog-actions">
+            <button type="button" class="ex-manage-btn" data-ex="sb-del-cancel">取消</button>
+            <button type="button" class="ex-manage-btn danger" data-ex="sb-del-ok">删除</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="ex-toast-container" data-ex="toast"></div>
@@ -1639,55 +1807,370 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .replace(/'/g, '&#39;');
   }
 
-  /** 沙箱管理页初始化：绑定打开/关闭 + 递归文件树（参考 RikkaHub） */
+  /** 沙箱管理页：模块级状态（loadSandboxDir/loadSandboxFile 是模块级函数，需共享选中工作区与面板引用） */
+  let sandboxWsId = '';
+  let sandboxFileviewEl: HTMLElement | null = null;
+  let sandboxShellInput: HTMLInputElement | null = null;
+  let sandboxShellRun: HTMLButtonElement | null = null;
+  let sandboxShellOut: HTMLElement | null = null;
+
+  /** 沙箱管理三页（v0.0.87 对齐 RikkaHub WorkspacePage/DetailPage/TerminalPage）：列表 → 详情[Basic/Files] / 终端 */
   function initSandboxManage(): void {
     const manage = container.querySelector('[data-ex="sandbox-manage"]') as HTMLElement | null;
-    const wsListEl = container.querySelector('[data-ex="sandbox-wslist"]') as HTMLElement | null;
-    const treeEl = container.querySelector('[data-ex="sandbox-tree"]') as HTMLElement | null;
-    const openBtn = container.querySelector('[data-ex="sandboxManage"]') as HTMLButtonElement | null;
-    const backBtn = container.querySelector('[data-ex="sandboxBack"]') as HTMLButtonElement | null;
     if (!manage) return;
-    openBtn?.addEventListener('click', () => { manage.classList.add('show'); void loadWorkspaceList(); });
+    const pageList = manage.querySelector('[data-ex="sb-page-list"]') as HTMLElement | null;
+    const pageDetail = manage.querySelector('[data-ex="sb-page-detail"]') as HTMLElement | null;
+    const pageTerm = manage.querySelector('[data-ex="sb-page-term"]') as HTMLElement | null;
+    const wsListEl = manage.querySelector('[data-ex="sandbox-wslist"]') as HTMLElement | null;
+    const treeEl = manage.querySelector('[data-ex="sandbox-tree"]') as HTMLElement | null;
+    const openBtn = container.querySelector('[data-ex="sandboxManage"]') as HTMLButtonElement | null;
+    const backBtn = manage.querySelector('[data-ex="sandboxBack"]') as HTMLButtonElement | null;
+    sandboxFileviewEl = manage.querySelector('[data-ex="sandbox-fileview"]');
+    sandboxShellInput = manage.querySelector('[data-ex="sb-term-input"]');
+    sandboxShellRun = manage.querySelector('[data-ex="sb-term-run"]');
+    sandboxShellOut = manage.querySelector('[data-ex="sb-term-out"]');
+    sandboxWsId = '';
+    const showPage = (p: HTMLElement | null): void => {
+      [pageList, pageDetail, pageTerm].forEach((pg) => { if (pg) pg.hidden = pg !== p; });
+    };
+    openBtn?.addEventListener('click', () => {
+      manage.classList.add('show');
+      showPage(pageList);
+      void loadWorkspaceList();
+    });
     backBtn?.addEventListener('click', () => manage.classList.remove('show'));
-    // RikkaHub 式：打开自动列工作区，点某个工作区即展开其文件树
+    // 面板引用（详情页）
+    const detailTitle = manage.querySelector('[data-ex="sb-detail-title"]') as HTMLElement | null;
+    const infoName = manage.querySelector('[data-ex="sb-info-name"]') as HTMLElement | null;
+    const infoId = manage.querySelector('[data-ex="sb-info-id"]') as HTMLElement | null;
+    const infoShell = manage.querySelector('[data-ex="sb-info-shell"]') as HTMLElement | null;
+    const rootfsState = manage.querySelector('[data-ex="sb-rootfs-state"]') as HTMLElement | null;
+    const rootfsInstall = manage.querySelector('[data-ex="sb-rootfs-install"]') as HTMLButtonElement | null;
+    const rootfsProgress = manage.querySelector('[data-ex="sb-rootfs-progress"]') as HTMLElement | null;
+    const tabBasic = manage.querySelector('[data-ex="sb-tab-basic"]') as HTMLElement | null;
+    const tabFiles = manage.querySelector('[data-ex="sb-tab-files"]') as HTMLElement | null;
+    const segFiles = manage.querySelector('[data-ex="sb-seg-files"]') as HTMLButtonElement | null;
+    const segRootfs = manage.querySelector('[data-ex="sb-seg-rootfs"]') as HTMLButtonElement | null;
+    const pathEl = manage.querySelector('[data-ex="sb-path"]') as HTMLElement | null;
+    const pathUp = manage.querySelector('[data-ex="sb-path-up"]') as HTMLButtonElement | null;
+    const termTitle = manage.querySelector('[data-ex="sb-term-title"]') as HTMLElement | null;
+    const nameDialog = manage.querySelector('[data-ex="sb-name-dialog"]') as HTMLElement | null;
+    const nameDialogTitle = manage.querySelector('[data-ex="sb-name-dialog-title"]') as HTMLElement | null;
+    const nameInput = manage.querySelector('[data-ex="sb-name-input"]') as HTMLInputElement | null;
+    const nameErr = manage.querySelector('[data-ex="sb-name-err"]') as HTMLElement | null;
+    const nameOk = manage.querySelector('[data-ex="sb-name-ok"]') as HTMLButtonElement | null;
+    const nameCancel = manage.querySelector('[data-ex="sb-name-cancel"]') as HTMLButtonElement | null;
+    const delDialog = manage.querySelector('[data-ex="sb-del-dialog"]') as HTMLElement | null;
+    const delOk = manage.querySelector('[data-ex="sb-del-ok"]') as HTMLButtonElement | null;
+    const delCancel = manage.querySelector('[data-ex="sb-del-cancel"]') as HTMLButtonElement | null;
+    // 名称/删除对话框：状态变量 + 单次绑定（v0.0.87 修复：此前每次打开都 addEventListener 新闭包，removeEventListener 用新引用永远移不掉旧监听器，
+    // 残留的"创建"监听器在重命名保存时同时执行 → 复制副本 bug）
+    let sbNameMode: 'create' | 'rename' = 'create';
+    let sbNameTargetId = '';
+    let sbWsRows: string[] = [];
+    let sbDelTargetId = '';
+    const openNameDialog = (mode: 'create' | 'rename', targetId: string, preset: string, rowsNow: string[]): void => {
+      sbNameMode = mode;
+      sbNameTargetId = targetId;
+      sbWsRows = rowsNow;
+      if (!nameDialog || !nameInput || !nameErr || !nameDialogTitle) return;
+      nameDialogTitle.textContent = mode === 'create' ? '创建工作区' : '重命名工作区';
+      nameInput.value = preset;
+      nameErr.hidden = true;
+      nameDialog.hidden = false;
+      window.setTimeout(() => nameInput.focus(), 30);
+    };
+    nameOk?.addEventListener('click', async () => {
+      if (!nameDialog || !nameInput || !nameErr) return;
+      const v = nameInput.value.trim();
+      if (!v) return;
+      if (sbNameMode === 'rename') {
+        const exists = sbWsRows.some((r2) => { const c = r2.split(/\s+/); return c.length >= 2 && c[1] === v && c[0] !== sbNameTargetId; });
+        if (exists) { nameErr.hidden = false; return; }
+      }
+      nameDialog.hidden = true;
+      try {
+        if (sbNameMode === 'rename') {
+          await ctx.tools.execute('workspace_rename', { workspaceId: sbNameTargetId, name: v });
+          showToast('已重命名');
+        } else {
+          await ctx.tools.execute('workspace_create', { name: v });
+          showToast('已创建');
+        }
+        void loadWorkspaceList();
+      } catch { showToast(sbNameMode === 'rename' ? '重命名失败' : '创建失败'); }
+    });
+    nameCancel?.addEventListener('click', () => { if (nameDialog) nameDialog.hidden = true; });
+    delOk?.addEventListener('click', async () => {
+      if (!delDialog) return;
+      delDialog.hidden = true;
+      try {
+        await ctx.tools.execute('workspace_delete', { workspaceId: sbDelTargetId });
+        showToast('已删除');
+        void loadWorkspaceList();
+      } catch { showToast('删除失败'); }
+    });
+    delCancel?.addEventListener('click', () => { if (delDialog) delDialog.hidden = true; });
+    // 详情页状态
+    let currentWsName = '';
+    let currentFs: 'files' | 'rootfs' = 'files';
+    let currentFsPath = '/workspace';
+    // Files/Rootfs 当前目录平铺加载（对齐 RikkaHub WorkspaceDetailPage Files tab：路径栏 + 平铺列表）
+    const loadDetailFiles = async (wsId: string, fs: 'files' | 'rootfs', p: string): Promise<void> => {
+      currentFs = fs;
+      currentFsPath = p;
+      if (pathEl) pathEl.textContent = p;
+      if (!treeEl) return;
+      treeEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:12px;text-align:center;">加载中...</div>';
+      try {
+        const parts = await ctx.tools.execute('workspace_list_files', { workspaceId: wsId, path: p });
+        const text = (parts ?? []).map((x) => (x.type === 'text' ? x.text : '')).join('\n');
+        const items = parseSandboxList(text);
+        if (items.length === 0) {
+          treeEl.innerHTML = '<div class="ex-sandbox-tree-item" style="color:var(--ex-text3)">（空目录）</div>';
+          return;
+        }
+        treeEl.innerHTML = '';
+        for (const it of items) {
+          const row = document.createElement('div');
+          row.className = 'ex-sandbox-tree-item' + (it.type === 'dir' ? ' dir' : ' file');
+          row.style.cursor = 'pointer';
+          const icon = it.type === 'dir' ? '▸' : '·';
+          row.innerHTML = `<span class="ex-sandbox-tree-icon">${icon}</span><span class="ex-sandbox-tree-name">${esc(it.name)}</span>${it.type === 'file' ? `<span class="ex-sandbox-tree-size">${esc(it.size)}</span>` : ''}`;
+          row.addEventListener('click', () => {
+            const childPath = `${p === '/' ? '' : p}/${it.name}`;
+            if (it.type === 'dir') {
+              void loadDetailFiles(wsId, fs, childPath);
+            } else {
+              // v0.0.87 选中态：清除其他行选中，高亮当前文件行
+              treeEl.querySelectorAll('.ex-sandbox-tree-item.selected').forEach((n) => n.classList.remove('selected'));
+              row.classList.add('selected');
+              void loadSandboxFile(wsId, childPath);
+            }
+          });
+          treeEl.appendChild(row);
+        }
+      } catch {
+        treeEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:12px;text-align:center;">读取失败</div>';
+      }
+    };
+    // 列表页：卡片（图标+名称+状态+三点菜单）+ FAB 创建 + 重命名/删除（对齐 RikkaHub WorkspacePage）
     async function loadWorkspaceList(): Promise<void> {
       if (!wsListEl) return;
-      wsListEl.innerHTML = '<div>加载中...</div>';
+      wsListEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:12px;text-align:center;">加载中...</div>';
       try {
         const parts = await ctx.tools.execute('workspace_list', {});
         const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
         const rows = text.split('\n').map((l) => l.trim()).filter(Boolean);
-        if (rows.length === 0) { wsListEl.innerHTML = '<div>（暂无工作区，可在对话中让 AI 创建）</div>'; return; }
+        if (rows.length === 0) {
+          wsListEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:28px 12px;text-align:center;">暂无工作区<br/><span style="font-size:11px">点击右下角 + 创建</span></div>';
+          return;
+        }
         wsListEl.innerHTML = '';
+        const iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5z"/><path d="M12 12v10"/><path d="M3 7l9 5 9-5"/></svg>';
         for (const line of rows) {
           const cols = line.split(/\s+/);
           if (cols.length < 2) continue;
           const id = cols[0];
           const name = cols[1];
           const state = cols[2] === '✓' ? '已装 rootfs' : cols[2] === '✗' ? '未装 rootfs' : '';
-          const item = document.createElement('button');
-          item.type = 'button';
+          const item = document.createElement('div');
           item.className = 'ex-sandbox-ws-item';
-          // v0.0.85：对齐 RikkaHub ListItem（图标 + 名称 + 状态副标题 + 右侧选中勾）
-          const iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5z"/><path d="M12 12v10"/><path d="M3 7l9 5 9-5"/></svg>';
-          item.innerHTML = `<span class="ex-sandbox-ws-icon">${iconSvg}</span><span class="ex-sandbox-ws-main"><span class="ex-sandbox-ws-name">${esc(name)}</span><span class="ex-sandbox-ws-id">${esc(id)}${state ? ` · ${esc(state)}` : ''}</span></span><span class="ex-sandbox-ws-check"></span>`;
-          item.addEventListener('click', () => {
-            wsListEl.querySelectorAll('.ex-sandbox-ws-item').forEach((n) => {
-              n.classList.remove('active');
-              const c = n.querySelector('.ex-sandbox-ws-check') as HTMLElement | null;
-              if (c) c.textContent = '';
+          item.innerHTML = `<span class="ex-sandbox-ws-icon">${iconSvg}</span><span class="ex-sandbox-ws-main"><span class="ex-sandbox-ws-name">${esc(name)}</span><span class="ex-sandbox-ws-id">${esc(id)}${state ? ` · ${esc(state)}` : ''}</span></span><button type="button" class="ex-sandbox-ws-menu" data-ex="ws-menu" title="更多">···</button>`;
+          item.addEventListener('click', (ev) => {
+            const t = ev.target as HTMLElement;
+            if (t.closest('[data-ex="ws-menu"]')) return;
+            // 进详情页
+            sandboxWsId = id;
+            currentWsName = name;
+            showPage(pageDetail);
+            if (detailTitle) detailTitle.textContent = name;
+            if (infoName) infoName.textContent = name;
+            if (infoId) infoId.textContent = id;
+            if (infoShell) infoShell.textContent = state || '未知';
+            if (rootfsState) {
+              rootfsState.textContent = state || '未安装';
+              rootfsState.classList.toggle('installed', state === '已装 rootfs');
+            }
+            if (tabBasic) tabBasic.hidden = false;
+            if (tabFiles) tabFiles.hidden = true;
+            const tb = container.querySelector('[data-ex="sb-tab-basic-btn"]');
+            const tf = container.querySelector('[data-ex="sb-tab-files-btn"]');
+            tb?.classList.add('active');
+            tf?.classList.remove('active');
+            if (segFiles) segFiles.classList.add('active');
+            if (segRootfs) segRootfs.classList.remove('active');
+            currentFs = 'files';
+            currentFsPath = '/workspace';
+            void loadDetailFiles(id, 'files', '/workspace');
+            if (sandboxFileviewEl) sandboxFileviewEl.innerHTML = '<div style="font-size:11px;color:var(--ex-text3);padding:8px">点击文件查看/编辑内容</div>';
+          });
+          const menuBtn = item.querySelector('[data-ex="ws-menu"]') as HTMLButtonElement | null;
+          menuBtn?.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const pop = document.createElement('div');
+            pop.className = 'ex-sb-ws-menu-pop';
+            pop.innerHTML = '<button type="button" data-ex="ws-rename">✎ 重命名</button><button type="button" class="danger" data-ex="ws-delete">✕ 删除</button>';
+            const rect = menuBtn.getBoundingClientRect();
+            pop.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 90)}px`;
+            pop.style.left = `${Math.max(8, Math.min(rect.left - 100, window.innerWidth - 140))}px`;
+            document.body.appendChild(pop);
+            const close = (): void => pop.remove();
+            window.setTimeout(() => { document.addEventListener('click', close, { once: true }); }, 0);
+            pop.querySelector('[data-ex="ws-rename"]')?.addEventListener('click', () => {
+              close();
+              openNameDialog('rename', id, name, rows);
             });
-            item.classList.add('active');
-            const check = item.querySelector('.ex-sandbox-ws-check') as HTMLElement | null;
-            if (check) check.textContent = '✓';
-            if (treeEl) void loadSandboxDir(id, '/workspace', treeEl, 0);
+            pop.querySelector('[data-ex="ws-delete"]')?.addEventListener('click', () => {
+              close();
+              sbDelTargetId = id;
+              if (delDialog) delDialog.hidden = false;
+            });
           });
           wsListEl.appendChild(item);
         }
       } catch {
-        wsListEl.innerHTML = '<div>工作区列表读取失败</div>';
+        wsListEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:12px;text-align:center;">工作区列表读取失败</div>';
       }
     }
+    // FAB 创建工作区（单次绑定，经 openNameDialog 设状态）
+    const fabAdd = manage.querySelector('[data-ex="sb-add"]') as HTMLButtonElement | null;
+    fabAdd?.addEventListener('click', () => {
+      openNameDialog('create', '', '', []);
+    });
+    // —— 详情页导航 ——
+    manage.querySelector('[data-ex="sb-detail-back"]')?.addEventListener('click', () => { showPage(pageList); void loadWorkspaceList(); });
+    manage.querySelector('[data-ex="sb-refresh"]')?.addEventListener('click', () => { if (sandboxWsId) void loadDetailFiles(sandboxWsId, currentFs, currentFsPath); });
+    // v0.0.87 导入（对齐 RikkaHub Import：文件选择器 → 写入当前工作区当前目录，支持多选文本文件）
+    const importBtn = manage.querySelector('[data-ex="sb-import"]') as HTMLButtonElement | null;
+    const importFile = manage.querySelector('[data-ex="sb-import-file"]') as HTMLInputElement | null;
+    importBtn?.addEventListener('click', () => importFile?.click());
+    importFile?.addEventListener('change', async () => {
+      const files = importFile.files ? Array.from(importFile.files) : [];
+      if (!sandboxWsId || files.length === 0) return;
+      let ok = 0;
+      let fail = 0;
+      for (const f of files) {
+        try {
+          const content = await f.text();
+          const path = `${currentFsPath === '/' ? '' : currentFsPath}/${f.name}`;
+          await ctx.tools.execute('workspace_write_file', { workspaceId: sandboxWsId, path, content });
+          ok++;
+        } catch { fail++; }
+      }
+      importFile.value = '';
+      showToast(ok > 0 ? `已导入 ${ok} 个文件${fail > 0 ? `，${fail} 个失败` : ''}` : '导入失败');
+      if (ok > 0 && sandboxWsId) void loadDetailFiles(sandboxWsId, currentFs, currentFsPath);
+    });
+    manage.querySelector('[data-ex="sb-terminal"]')?.addEventListener('click', () => {
+      showPage(pageTerm);
+      if (termTitle) termTitle.textContent = `${currentWsName || '工作区'} · 终端`;
+      if (sandboxShellOut && sandboxShellOut.textContent.includes('输入命令开始')) sandboxShellOut.textContent = '';
+    });
+    manage.querySelector('[data-ex="sb-tab-basic-btn"]')?.addEventListener('click', () => {
+      if (tabBasic) tabBasic.hidden = false;
+      if (tabFiles) tabFiles.hidden = true;
+      manage.querySelector('[data-ex="sb-tab-basic-btn"]')?.classList.add('active');
+      manage.querySelector('[data-ex="sb-tab-files-btn"]')?.classList.remove('active');
+    });
+    manage.querySelector('[data-ex="sb-tab-files-btn"]')?.addEventListener('click', () => {
+      if (tabFiles) tabFiles.hidden = false;
+      if (tabBasic) tabBasic.hidden = true;
+      manage.querySelector('[data-ex="sb-tab-files-btn"]')?.classList.add('active');
+      manage.querySelector('[data-ex="sb-tab-basic-btn"]')?.classList.remove('active');
+      if (sandboxWsId) void loadDetailFiles(sandboxWsId, currentFs, currentFsPath);
+    });
+    segFiles?.addEventListener('click', () => { if (sandboxWsId) void loadDetailFiles(sandboxWsId, 'files', '/workspace'); });
+    segRootfs?.addEventListener('click', () => { if (sandboxWsId) void loadDetailFiles(sandboxWsId, 'rootfs', '/'); });
+    pathUp?.addEventListener('click', () => {
+      if (!sandboxWsId) return;
+      const p = currentFsPath;
+      const parentPath = p === '/' || p === '/workspace' ? p : (p.replace(/\/[^/]*$/, '') || '/');
+      void loadDetailFiles(sandboxWsId, currentFs, parentPath);
+    });
+    // rootfs 安装（对齐 RikkaHub rootfs 安装三态）
+    rootfsInstall?.addEventListener('click', async () => {
+      if (!sandboxWsId || !rootfsProgress || !rootfsState) return;
+      rootfsProgress.hidden = false;
+      rootfsProgress.textContent = '安装中...';
+      rootfsInstall.disabled = true;
+      try {
+        await ctx.tools.execute('workspace_install_rootfs', { workspaceId: sandboxWsId });
+        rootfsProgress.textContent = '安装完成';
+        rootfsState.textContent = '已装 rootfs';
+        rootfsState.classList.add('installed');
+      } catch {
+        rootfsProgress.textContent = '安装失败';
+      } finally {
+        rootfsInstall.disabled = false;
+      }
+    });
+    // 工具审批开关（对齐 RikkaHub Tool Approval：读/写/shell）
+    const apprRead = manage.querySelector('[data-ex="sb-appr-read"]') as HTMLInputElement | null;
+    const apprWrite = manage.querySelector('[data-ex="sb-appr-write"]') as HTMLInputElement | null;
+    const apprShell = manage.querySelector('[data-ex="sb-appr-shell"]') as HTMLInputElement | null;
+    // v0.0.87 修正：审批开关接 config.agent.needsApproval（执行链 chat-controller buildAgentToolExecutor 真实消费，
+    // AI 调用对应工具前弹 confirm 审批；此前写 approvals 死键无人读，是占位）
+    const agentCfg = (ctx.config.get('agent') ?? {}) as { needsApproval?: Record<string, boolean> };
+    const sbNeeds = agentCfg.needsApproval ?? {};
+    const sbDefNeed: Record<string, boolean> = { workspace_write_file: true, workspace_shell: true };
+    if (apprRead) apprRead.checked = sbNeeds.workspace_read_file ?? false;
+    if (apprWrite) apprWrite.checked = sbNeeds.workspace_write_file ?? sbDefNeed.workspace_write_file;
+    if (apprShell) apprShell.checked = sbNeeds.workspace_shell ?? sbDefNeed.workspace_shell;
+    const apprVal = (key: string, v: boolean): void => {
+      const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+      const needsApproval = { ...((agent.needsApproval as Record<string, boolean> | undefined) ?? {}) };
+      if (v) needsApproval[key] = true;
+      else delete needsApproval[key];
+      ctx.config.set('agent', { ...agent, needsApproval });
+    };
+    apprRead?.addEventListener('change', () => apprVal('workspace_read_file', apprRead.checked));
+    apprWrite?.addEventListener('change', () => apprVal('workspace_write_file', apprWrite.checked));
+    apprShell?.addEventListener('change', () => apprVal('workspace_shell', apprShell.checked));
+    // —— 终端页 ——
+    manage.querySelector('[data-ex="sb-term-back"]')?.addEventListener('click', () => { showPage(pageDetail); });
+    sandboxShellRun?.addEventListener('click', async () => {
+      const cmd = sandboxShellInput?.value.trim();
+      if (!cmd || !sandboxShellOut) return;
+      if (!sandboxWsId) { sandboxShellOut.textContent += '\n请先选择工作区'; return; }
+      if (sandboxShellOut.textContent.includes('输入命令开始')) sandboxShellOut.textContent = '';
+      sandboxShellOut.textContent += `\n$ ${cmd}`;
+      try {
+        const parts = await ctx.tools.execute('workspace_shell', { workspaceId: sandboxWsId, command: cmd });
+        const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+        sandboxShellOut.textContent += `\n${text}`;
+        if (sandboxShellInput) sandboxShellInput.value = '';
+        sandboxShellOut.scrollTop = sandboxShellOut.scrollHeight;
+      } catch (e) {
+        sandboxShellOut.textContent += `\n执行失败: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    });
+    sandboxShellInput?.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') sandboxShellRun?.click();
+    });
+    // 按键栏（ESC/TAB/CTRL/ALT/方向键）
+    const keyMap: Record<string, string> = { esc: '\u001b', tab: '\t', ctrl: '\u0003', alt: '\u001b' };
+    manage.querySelectorAll('[data-ex^="sb-key-"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = (btn as HTMLElement).getAttribute('data-ex')!.replace('sb-key-', '');
+        const inp = sandboxShellInput;
+        if (!inp) return;
+        if (key === 'left' || key === 'right') {
+          const pos = (inp.selectionStart ?? 0) + (key === 'left' ? -1 : 1);
+          inp.focus();
+          inp.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+          return;
+        }
+        if (key === 'up' || key === 'down') { inp.focus(); return; }
+        const kv = keyMap[key];
+        if (kv !== undefined) {
+          const pos = inp.selectionStart ?? inp.value.length;
+          inp.value = inp.value.slice(0, pos) + kv + inp.value.slice(pos);
+          inp.setSelectionRange(pos + kv.length, pos + kv.length);
+          inp.focus();
+        }
+      });
+    });
   }
 
   /** 递归加载沙箱目录（解析 workspace_list_files 返回，目录可展开） */
@@ -1721,6 +2204,14 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               row.querySelector('.ex-sandbox-tree-children')?.remove();
             }
           });
+        } else {
+          // v0.0.86：文件行点击 → 查看/编辑内容（对齐 RikkaHub workspace_read_file / write_file）
+          row.classList.add('file');
+          row.style.cursor = 'pointer';
+          row.addEventListener('click', () => {
+            const p = `${path === '/' ? '' : path}/${it.name}`;
+            void loadSandboxFile(sandboxWsId || wsId, p);
+          });
         }
         parent.appendChild(row);
       }
@@ -1729,9 +2220,53 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
   }
 
+  /** 加载文件内容到查看/编辑面板（v0.0.86 对齐 RikkaHub workspace_read_file，保存走 write_file） */
+  async function loadSandboxFile(wsId: string, path: string): Promise<void> {
+    if (!sandboxFileviewEl) return;
+    sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(path)} 加载中...</div>`;
+    try {
+      const parts = await ctx.tools.execute('workspace_read_file', { workspaceId: wsId, path });
+      const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+      sandboxFileviewEl.innerHTML = `
+        <div class="ex-sandbox-fileview-path">${esc(path)}</div>
+        <textarea data-ex="sandbox-fileview-text" spellcheck="false">${esc(text)}</textarea>
+        <div class="ex-sandbox-fileview-actions">
+          <button type="button" class="ex-manage-btn" data-ex="sandbox-fileview-save">保存</button>
+          <button type="button" class="ex-manage-btn" data-ex="sandbox-fileview-export">导出</button>
+          <span data-ex="sandbox-fileview-status"></span>
+        </div>`;
+      const saveBtn = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-save"]') as HTMLButtonElement | null;
+      const exportBtn = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-export"]') as HTMLButtonElement | null;
+      const status = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-status"]') as HTMLElement | null;
+      const ta = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-text"]') as HTMLTextAreaElement | null;
+      // v0.0.87 导出（对齐 RikkaHub Export：读文件内容 → 本地下载）
+      exportBtn?.addEventListener('click', () => {
+        const name = path.split('/').pop() || 'file';
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+      saveBtn?.addEventListener('click', async () => {
+        if (!ta || !status) return;
+        status.textContent = '保存中...';
+        try {
+          await ctx.tools.execute('workspace_write_file', { workspaceId: wsId, path, content: ta.value });
+          status.textContent = '已保存';
+        } catch {
+          status.textContent = '保存失败';
+        }
+      });
+    } catch {
+      sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(path)} 读取失败</div>`;
+    }
+  }
+
   /** 解析沙箱文件列表文本 → [{name,type,size}]（[目录]/[文件] 前缀） */
-  function parseSandboxList(text: string): { name: string; type: 'dir' | 'file'; size: string }[] {
-    const out: { name: string; type: 'dir' | 'file'; size: string }[] = [];
+  function parseSandboxList(text: string): { name: string; type: 'dir' | 'file'; size: string }[] {    const out: { name: string; type: 'dir' | 'file'; size: string }[] = [];
     for (const raw of text.split('\n')) {
       const l = raw.trim();
       if (!l) continue;
@@ -1769,7 +2304,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       else if (t.name === 'sandbox_skill') groups[1].items.push(t);
       else groups[2].items.push(t);
     }
-    const needsApproval = (agent.needsApproval as Record<string, boolean> | undefined) ?? {};
     const paramChips = (t: (typeof tools)[number]): string => {
       const props = t.parameters?.properties ?? {};
       const keys = Object.keys(props);
@@ -1784,11 +2318,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         <div class="ex-tool-grid">${g.items
           .map((t) => {
             const on = enabledTools[t.name] !== false;
-            const need = needsApproval[t.name] ?? (t.needsApproval ?? false);
             return `<div class="ex-tool-mgmt-card">
             <span class="ex-tool-name">${esc(t.name)}</span>
             <div class="ex-tool-switch-row">
-              <label class="ex-tool-switch" title="${need ? '当前需审批' : '免审批'}"><input type="checkbox" data-ex-tool-approve="${esc(t.name)}" ${need ? 'checked' : ''} /><span class="ex-tool-switch-track"></span></label>
               <label class="ex-tool-switch" title="${on ? '停用' : '启用'}"><input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} /><span class="ex-tool-switch-track"></span></label>
             </div>
             <details class="ex-tool-more">
@@ -1796,14 +2328,14 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
               ${paramChips(t)}
             </details>
-            <div class="ex-tool-label-row"><span>审批</span><span>启用</span></div>
+            <div class="ex-tool-label-row"><span></span><span>启用</span></div>
           </div>`;
           })
           .join('')}</div>
       </div>`,
       )
       .join('');
-    // 启用开关
+    // 启用开关（v0.0.87：工具管理列表不再显示审批按钮，审批只保留沙箱管理页的读/写/Shell 三项）
     listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-toggle]').forEach((chk) => {
       chk.addEventListener('change', () => {
         const name = chk.dataset.exToolToggle;
@@ -1814,19 +2346,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         else enabledTools[name] = false;
         ctx.config.set('agent', { ...agent, enabledTools });
         showToast(chk.checked ? `已启用工具 ${name}` : `已停用工具 ${name}`);
-      });
-    });
-    // 需审批开关（用户可给任意工具设置需审批，存 config.agent.needsApproval）
-    listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-approve]').forEach((chk) => {
-      chk.addEventListener('change', () => {
-        const name = chk.dataset.exToolApprove;
-        if (!name) return;
-        const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
-        const needsApproval = { ...((agent.needsApproval as Record<string, boolean> | undefined) ?? {}) };
-        if (chk.checked) needsApproval[name] = true;
-        else delete needsApproval[name];
-        ctx.config.set('agent', { ...agent, needsApproval });
-        showToast(chk.checked ? `${name} 已设为需审批` : `${name} 已设为免审批`);
       });
     });
   }
