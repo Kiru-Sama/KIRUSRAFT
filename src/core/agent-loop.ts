@@ -30,7 +30,9 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
           ? m.content.map((p): Record<string, unknown> =>
               p.type === 'text'
                 ? { type: 'input_text', text: p.text }
-                : { type: 'input_image', image_url: p.imageUrl },
+                : p.type === 'image'
+                  ? { type: 'input_image', image_url: p.imageUrl }
+                  : { type: 'input_text', text: p.text },
             )
           : [{ type: 'input_text', text: m.content }],
       }));

@@ -23,7 +23,7 @@ function parseSseEvent(line: string): { data: unknown } | null {
 }
 
 /** 构造 Responses input：普通消息数组或完整 input（工具循环用）。
- *  content 字符串→input_text；部件数组→text→input_text、image→input_image（data URL，RikkaHub ResponseAPI 517-528 行） */
+ *  content 字符串→input_text；部件数组→text→input_text、image→input_image、reasoning→reasoning_text（v0.0.78 DeepSeek thinking 续写必须回传） */
 function buildInput(request: ChatRequest): ResponsesInputItem[] {
   if (request.input && request.input.length > 0) return request.input;
   return (request.messages ?? []).map((m) => ({
@@ -32,7 +32,9 @@ function buildInput(request: ChatRequest): ResponsesInputItem[] {
       ? m.content.map((p): Record<string, unknown> =>
           p.type === 'text'
             ? { type: 'input_text', text: p.text }
-            : { type: 'input_image', image_url: p.imageUrl },
+            : p.type === 'image'
+              ? { type: 'input_image', image_url: p.imageUrl }
+              : { type: 'reasoning_text', text: p.text },
         )
       : [{ type: 'input_text', text: m.content }],
   }));

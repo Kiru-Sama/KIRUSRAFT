@@ -72,10 +72,11 @@ export interface Session {
   stats?: SessionStats;
 }
 
-/** 消息内容部件（provider 层）：文本或图片（图片为 dataURL 或 URL，参考 RikkaHub UIMessagePart.Image 三态 url） */
+/** 消息内容部件（provider 层）：文本/图片/推理（v0.0.78 多轮对话续写，DeepSeek thinking 模式必须回传 reasoning_text） */
 export type ChatMessagePart =
   | { type: 'text'; text: string }
-  | { type: 'image'; imageUrl: string; alt?: string };
+  | { type: 'image'; imageUrl: string; alt?: string }
+  | { type: 'reasoning'; text: string };
 
 /** provider 消息：纯文本保持字符串（兼容旧链路），含图片时用部件数组（各 provider 再映射成自己的格式） */
 export type ChatMessageContent = string | ChatMessagePart[];

@@ -32,7 +32,9 @@ function buildMessages(request: ChatRequest): { role: string; content: unknown }
       ? m.content.map((p) =>
           p.type === 'text'
             ? { type: 'text', text: p.text }
-            : { type: 'image', source: imageSourceFromDataUrl(p.imageUrl) },
+            : p.type === 'image'
+              ? { type: 'image', source: imageSourceFromDataUrl(p.imageUrl) }
+              : { type: 'text', text: p.text },
         )
       : m.content,
   }));

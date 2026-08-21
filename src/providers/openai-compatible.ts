@@ -61,7 +61,9 @@ function contentToChatParts(parts: ChatMessagePart[]): Record<string, unknown>[]
   return parts.map((p) =>
     p.type === 'text'
       ? { type: 'text', text: p.text }
-      : { type: 'image_url', image_url: { url: p.imageUrl } },
+      : p.type === 'image'
+        ? { type: 'image_url', image_url: { url: p.imageUrl } }
+        : { type: 'text', text: p.text },
   );
 }
 

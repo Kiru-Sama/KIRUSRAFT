@@ -123,28 +123,35 @@ export function forkSessionAtMessage(session: Session, messageId: string): Sessi
 
 /** 拼接对话历史（给 provider 用）：基于当前选中的候选序列。
  *  图片部件映射为 {type:'image', imageUrl}（dataURL），provider 再转各自格式。
+ *  v0.0.78：AI 消息的 reasoning 回传（DeepSeek thinking 模式必须带 reasoning_text，否则报错或重复输出）。
  *  maxRounds>0 时按"轮"截断历史：保留最后 maxRounds 条用户消息及其后的全部回复（1 轮=1 条用户消息）。 */
 export function toChatMessages(session: Session, maxRounds = 0): { role: string; content: ChatMessageContent }[] {
   let messages = currentMessages(session).map((m) => ({
     role: m.role === 'user' ? 'user' : 'assistant',
-    content: toChatContent(m.parts),
+    content: toChatContent(m.parts, m.role === 'ai' ? m.reasoning : undefined),
   }));
   if (maxRounds > 0) messages = limitRounds(messages, maxRounds);
   return messages;
 }
 
 /** UIMessagePart[] → ChatMessageContent（纯文本保持字符串；含图片时用部件数组）。
- *  tool 标注（v0.0.71）不进 AI 上下文——过滤掉（工作思维流仅 UI 展示） */
-export function toChatContent(parts: UIMessagePart[]): ChatMessageContent {
+ *  tool 标注（v0.0.71）不进 AI 上下文——过滤掉（工作思维流仅 UI 展示）。
+ *  reasoning（v0.0.78）：DeepSeek thinking 续写必须回传，作为 reasoning part 放在 content 数组首位 */
+export function toChatContent(parts: UIMessagePart[], reasoning?: string): ChatMessageContent {
   const nonEmpty = parts.filter((p): p is Exclude<UIMessagePart, { type: 'tool' }> =>
     p.type !== 'tool' && (p.type === 'text' ? p.text.length > 0 : true),
   );
-  if (nonEmpty.every((p) => p.type === 'text')) {
-    return nonEmpty.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
-  }
-  return nonEmpty.map((p): ChatMessagePart =>
+  const base = nonEmpty.map((p): ChatMessagePart =>
     p.type === 'text' ? { type: 'text', text: p.text } : { type: 'image', imageUrl: p.imageUrl, alt: p.alt },
   );
+  if (reasoning && reasoning.length > 0) {
+    base.unshift({ type: 'reasoning', text: reasoning });
+    return base;
+  }
+  if (base.every((p) => p.type === 'text')) {
+    return base.map((p) => p.text).join('\n');
+  }
+  return base;
 }
 
 /** 按轮数截断（maxRounds<=0 或消息不足时不截断）：锚定最后一条用户消息，往前保留 maxRounds 条用户消息 */
