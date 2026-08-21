@@ -32,7 +32,7 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
                 ? { type: 'input_text', text: p.text }
                 : p.type === 'image'
                   ? { type: 'input_image', image_url: p.imageUrl }
-                  : { type: 'input_text', text: p.text },
+                  : { type: 'reasoning_text', text: p.text }, // v0.0.78 reasoning 回传
             )
           : [{ type: 'input_text', text: m.content }],
       }));

@@ -33,12 +33,14 @@ function buildMessages(request: ChatRequest): Record<string, unknown>[] {
       if (it.type === 'function_call_output') {
         return { role: 'tool', tool_call_id: it.call_id, content: typeof it.output === 'string' ? it.output : JSON.stringify(it.output ?? '') };
       }
-      // input_text / input_image 等 → 简化（input_image 图片必须映射为 image_url，否则 String() 得到 "[object Object]"）
+      // input_text / input_image / reasoning_text 等 → 映射（v0.0.78: reasoning_text 降级为 text 防空 url）
       const content = Array.isArray(it.content)
         ? (it.content as Record<string, unknown>[]).map((p): Record<string, unknown> =>
             p.type === 'input_text'
               ? { type: 'text', text: String(p.text ?? '') }
-              : { type: 'image_url', image_url: { url: String(p.image_url ?? '') } },
+              : p.type === 'reasoning_text'
+                ? { type: 'text', text: String(p.text ?? '') } // chat/completions 不支持原生 reasoning_text，降级 text
+                : { type: 'image_url', image_url: { url: String(p.image_url ?? '') } },
           )
         : String(it.content ?? '');
       return { role: it.role === 'ai' ? 'assistant' : it.role === 'user' ? 'user' : it.role, content };

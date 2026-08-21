@@ -6,4 +6,4 @@
  *   - android/app/build.gradle 的 versionCode/versionName
  *   - capacitor.config.ts 的 version
  */
-export const VERSION = '0.0.78';
+export const VERSION = '0.0.79';
