@@ -2002,6 +2002,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     messages: messagesEl,
     input: inputEl,
     send: sendEl,
+    // v0.0.75：继续生成原位续写——返回最后 AI 气泡 DOM（不新建）
+    getLastAiBubble: () => lastAiBubble,
     onStreamState: (state) => {
       // v0.0.73：发送/中止/继续同一按钮三态
       sendEl.dataset.state = state;
@@ -2143,19 +2145,33 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         }, 1200);
       });
       tools.appendChild(copyBtn);
-      // 编辑按钮（APITOOL editMsg/editAiMsg 语义）：弹窗编辑后写回
-      if (message) {
+      // 编辑按钮（APITOOL editMsg/editAiMsg 语义）：弹窗编辑后写回。
+      // v0.0.75：AI 流式空气泡（无 message）也创建——点击时用最后 AI 消息 id（onStreamEnd 后按钮与复制一起显示）
+      const editMsgId = message ? message.id : undefined;
+      if (editMsgId || role === 'ai') {
         const editBtn = document.createElement('button');
         editBtn.className = 'ex-msg-btn';
         editBtn.textContent = '编辑';
         editBtn.title = role === 'user' ? '编辑此消息并重新生成回复' : '就地编辑此回复（不重发）';
         editBtn.addEventListener('click', () => {
+          // 流式空气泡（无 message）：从分支快照找最后一条 AI 消息
+          let targetId = editMsgId;
+          if (!targetId) {
+            const snap = controller.getBranchSnapshot();
+            for (let i = snap.length - 1; i >= 0; i--) {
+              if (snap[i].role === 'ai') {
+                targetId = snap[i].messageId;
+                break;
+              }
+            }
+          }
+          if (!targetId) return;
           const oldText = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
           // v0.0.69：专用编辑弹窗（保留上一轮输入便于修改），不再用 window.prompt
           void showEditModal(oldText, role === 'user' ? '编辑消息' : '编辑回复').then((next) => {
             if (next === null || !next.trim()) return;
-            if (role === 'user') controller.editUserMessage(message.id, next);
-            else controller.editAiMessage(message.id, next);
+            if (role === 'user') controller.editUserMessage(targetId!, next);
+            else controller.editAiMessage(targetId!, next);
           });
         });
         tools.appendChild(editBtn);

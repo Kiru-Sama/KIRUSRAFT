@@ -25,6 +25,8 @@ export interface ChatElements {
   status: HTMLElement;
   /** 流式状态回调（v0.0.73）：GUI 切换发送按钮形态——streaming=中止样式 / stopped=继续 / idle=发送 */
   onStreamState?: (state: 'idle' | 'streaming' | 'stopped') => void;
+  /** 获取最后 AI 气泡 DOM（v0.0.75 继续生成原位续写用）：continue 时在原有气泡上追加，不新建 */
+  getLastAiBubble?: () => HTMLElement | null;
   /** 联网搜索开关（可选） */
   webSearch?: HTMLInputElement;
   /** 渲染一条消息气泡（GUI 自定义样式），返回的元素会被追加到消息列表；message 为完整消息时传第三参 */
@@ -254,15 +256,19 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
    */
   /**
    * 流式写入气泡内容：v0.0.72 改 [data-msg-text] 容器（文本段），工具标注 details 是其兄弟节点不被覆盖。
-   * 文本增量只写最后一个文本容器，tool 标注保持原位（成熟 agent 交错布局）。
+   * append=true（v0.0.75 续写）：在容器末尾追加 delta（原气泡续写不重复已有文本）
    */
-  function setMessageContent(bubble: HTMLElement, text: string): void {
+  function setMessageContent(bubble: HTMLElement, text: string, append = false): void {
     const content = bubble.querySelector('[data-msg-content]') as HTMLElement | null;
     if (content) {
       const containers = content.querySelectorAll('[data-msg-text]');
-      const target = containers.length > 0 ? (containers[containers.length - 1] as HTMLElement) : content;
-      // 纯文本写入（避免 HTML 注入；Markdown 收尾在 onStreamEnd）
-      target.textContent = text;
+      let target = containers.length > 0 ? (containers[containers.length - 1] as HTMLElement) : null;
+      if (!target) {
+        target = document.createElement('div');
+        target.setAttribute('data-msg-text', '');
+        content.appendChild(target);
+      }
+      target.textContent = append ? (target.textContent ?? '') + text : text;
     } else {
       bubble.textContent = text;
     }
@@ -906,18 +912,24 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   }
 
   /** assistant 候选重新生成：流式写回已 push 的候选节点（不追加新节点，RikkaHub updateCurrentMessages 按节点下标写回）。
-   *  continueMode（v0.0.70）：续写模式——aiParts[0] 预置已有文本，先 renderCurrent 清旧气泡，再 append 新气泡（替代旧，无双气泡） */
+   *  continueMode（v0.0.75 修复）：续写模式——在原 AI 气泡 DOM 上继续流式追加（不 renderCurrent、不新建气泡），
+   *  成熟设计（ChatGPT/APITOOL continueGeneration）：气泡不重建、内容连续 */
   async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[], continueMode = false): Promise<void> {
     if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
-    if (continueMode) renderCurrent(); // 续写：清掉旧气泡（含现有文本），新气泡从现有文本续写
     streaming = true;
     const token = ++streamToken;
     els.onSendAccepted?.();
     let reqInput = 0;
     let reqOutput = 0;
     let reqCache = 0;
-    const aiBubble = els.renderMessage('ai', aiParts);
-    els.messages.appendChild(aiBubble);
+    // v0.0.75：续写模式复用原气泡 DOM（不新建），其余新建
+    let aiBubble: HTMLElement;
+    if (continueMode) {
+      aiBubble = els.getLastAiBubble?.() ?? els.renderMessage('ai', aiParts);
+    } else {
+      aiBubble = els.renderMessage('ai', aiParts);
+      els.messages.appendChild(aiBubble);
+    }
     els.messages.scrollTop = els.messages.scrollHeight;
     abortCtrl = new AbortController();
     els.onStreamState?.('streaming');
@@ -950,7 +962,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onTextDelta: (delta) => {
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
-            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
+            // v0.0.75：续写模式 append 增量到原气泡（不重复已有文本），普通模式全量写
+            setMessageContent(aiBubble, part.type === 'text' ? (continueMode ? delta : part.text) : '', continueMode);
             els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
