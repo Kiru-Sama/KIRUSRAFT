@@ -203,26 +203,29 @@ const STYLE = `
 .ex-btn-clear:active { transform:translateY(0); box-shadow:none; }
 /* ---- 消息区（气泡 = 内容 + 底部操作条；v0.0.65 改版：时间在气泡外上方，去角色标签，对齐由 wrap 控制） ---- */
 .ex-msgwrap { flex:1; position:relative; display:flex; flex-direction:column; min-height:0; }
-.ex-messages { flex:1; overflow-y:auto; padding:20px 8px 16px; display:flex; flex-direction:column; position:relative; z-index:1; }
+/* v0.0.70：messages 必须 min-height:0——flex 列子项默认 min-height:auto，内容多时会撑破 msgwrap
+   把 input-area 挤出屏幕/气泡溢出到输入区（"输入框上方挡气泡"根因） */
+.ex-messages { flex:1; overflow-y:auto; min-height:0; padding:20px 8px 16px; display:flex; flex-direction:column; position:relative; z-index:1; }
 /* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.67 拉宽到 94%（手机屏窄多利用，留两侧呼吸） */
 .ex-msg-wrap { max-width:94%; margin-bottom:20px; display:flex; flex-direction:column; }
 .ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
 .ex-msg-wrap.ex-ai { margin-right:auto; align-items:flex-start; }
 /* 时间戳：气泡外上方（小字，弱化） */
 .ex-msg-time { font-size:10px; color:var(--ex-text3); margin-bottom:4px; padding:0 4px; }
-.ex-message { background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px 10px; min-width:80px; width:100%; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
+.ex-message { background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px 10px; min-width:120px; width:100%; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
 /* v0.0.66：用户气泡与 AI 同色（深色），强调边 AI 在左、用户移到右 */
 .ex-message.ex-user { border-right:3px solid var(--ex-accent); }
 .ex-message.ex-ai { border-left:3px solid var(--ex-accent); }
-/* 底部操作条：左下角分支选择（←→ n/m）+ 右下角工具（复制/重发），APITOOL 底部按钮布局 */
-.ex-msg-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
-.ex-msg-branch { display:flex; align-items:center; gap:2px; font-size:10px; color:var(--ex-text2); }
-.ex-msg-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 6px; cursor:pointer; font-family:var(--ex-font); }
+/* 底部操作条：左下角分支选择（<> n/m）+ 右下角工具（复制/编辑），APITOOL 底部按钮布局。
+   v0.0.70：按钮不换行不压缩（气泡适应按钮，而非按钮适应气泡） */
+.ex-msg-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; flex-wrap:nowrap; white-space:nowrap; }
+.ex-msg-branch { display:flex; align-items:center; gap:2px; font-size:10px; color:var(--ex-text2); flex-shrink:0; }
+.ex-msg-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 6px; cursor:pointer; font-family:var(--ex-font); flex-shrink:0; }
 .ex-msg-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-msg-arrow:disabled { opacity:.35; cursor:default; }
-.ex-msg-count { padding:0 2px; min-width:26px; text-align:center; }
-.ex-msg-tools { display:flex; gap:6px; margin-left:auto; }
-.ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); }
+.ex-msg-count { padding:0 2px; min-width:26px; text-align:center; flex-shrink:0; }
+.ex-msg-tools { display:flex; gap:6px; margin-left:auto; flex-shrink:0; }
+.ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); flex-shrink:0; }
 .ex-msg-btn:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-msg-btn.copied { background:var(--ex-accent2) !important; color:var(--ex-bg); border-color:var(--ex-accent2) !important; }
 /* AI 思考过程（v0.0.67）：流式直显、不折叠；弱化区分（斜体/灰底/小字） */
@@ -230,6 +233,10 @@ const STYLE = `
 .ex-msg-reasoning-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--ex-text3); margin-bottom:4px; font-weight:bold; }
 .ex-msg-reasoning [data-msg-reasoning] { white-space:pre-wrap; word-break:break-word; line-height:1.5; font-style:italic; }
 .ex-user .ex-msg-reasoning { display:none; } /* 推理只属于 AI */
+/* 工作思维流（v0.0.70）：AI 气泡内工具调用状态行（参考成熟 agent 方案，展示 AI 正在做什么） */
+.ex-msg-flow { margin-bottom:8px; display:flex; flex-direction:column; gap:2px; }
+.ex-msg-flow-line { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:0.5px; }
+.ex-msg-flow-line::before { content:'▸ '; color:var(--ex-accent2); }
 /* ---- 消息 Markdown 渲染（仅白名单标签，文本已 esc 全量转义） ---- */
 .ex-msg-content > :first-child { margin-top:0; }
 .ex-msg-content > :last-child { margin-bottom:0; }
@@ -278,6 +285,8 @@ const STYLE = `
 .ex-send-btn:hover { background:var(--ex-accent2); border-color:var(--ex-accent2); }
 .ex-send-btn:disabled { background:var(--ex-surface2); color:var(--ex-text3); border-color:var(--ex-border); cursor:not-allowed; }
 .ex-stop-btn { background:var(--ex-accent2); border-color:var(--ex-accent2); }
+/* 继续生成按钮（v0.0.70）：中止后显示，accent 色区分 */
+.ex-continue-btn { background:var(--ex-accent); border-color:var(--ex-accent); }
 /* ---- 滚动条（APITOOL 风格：细轨 + 青绿滑块） ---- */
 .ex-conv-list::-webkit-scrollbar, .ex-messages::-webkit-scrollbar { width:6px; }
 .ex-conv-list::-webkit-scrollbar-track, .ex-messages::-webkit-scrollbar-track { background:var(--ex-bg2); border-radius:0; }
@@ -472,7 +481,7 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 /* 模态底部按钮（APITOOL .modal-buttons / .save-btn / .cancel-btn） */
 .ex-modal-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap; border-top:2px solid var(--ex-border); padding-top:14px; }
 .ex-modal-buttons button { padding:8px 20px; border:1px solid var(--ex-border); font-weight:900; cursor:pointer; text-transform:uppercase; box-shadow:0 1px 6px rgba(0,0,0,.25); transition:all .2s; font-family:var(--ex-font); font-size:12px; }
-.ex-save-btn { background:var(--ex-accent); color:var(--ex-bg); }
+.ex-save-btn { background:var(--ex-accent); color:var(--ex-bg); padding:8px 24px; border:1px solid var(--ex-accent); font-weight:900; cursor:pointer; text-transform:uppercase; font-family:var(--ex-font); font-size:12px; transition:all .2s; }
 .ex-save-btn:hover { background:var(--ex-accent2); transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.35); }
 .ex-cancel-btn { background:var(--ex-surface2); color:var(--ex-text2); }
 .ex-cancel-btn:hover { background:var(--ex-border); color:var(--ex-bg); }
@@ -658,6 +667,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             </div>
             <button class="ex-send-btn" data-ex="send" disabled>发送</button>
             <button class="ex-send-btn ex-stop-btn" data-ex="stop" style="display:none;">中止</button>
+            <!-- 继续生成（v0.0.70，APITOOL continueGeneration 同款）：中止后显示，从最后 AI 回复续写 -->
+            <button class="ex-send-btn ex-continue-btn" data-ex="continue" style="display:none;">继续</button>
           </div>
         </div>
       </main>
@@ -980,6 +991,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const inputEl = container.querySelector('[data-ex="input"]') as HTMLTextAreaElement;
   const sendEl = container.querySelector('[data-ex="send"]') as HTMLButtonElement;
   const stopEl = container.querySelector('[data-ex="stop"]') as HTMLButtonElement;
+  const continueBtn = container.querySelector('[data-ex="continue"]') as HTMLButtonElement;
   const statusEl = container.querySelector('[data-ex="status"]') as HTMLElement;
   const webSearchEl = container.querySelector('[data-ex="websearch"]') as HTMLInputElement;
   const webSearchBtn = container.querySelector('[data-ex="websearch-btn"]') as HTMLButtonElement;
@@ -1969,6 +1981,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     input: inputEl,
     send: sendEl,
     stop: stopEl,
+    continueBtn,
     status: statusEl,
     webSearch: webSearchEl,
     // 对话超 100k 字符：右上角确认 toast（带"确定发送"按钮），点确定后放行
@@ -2091,7 +2104,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         editBtn.addEventListener('click', () => {
           const oldText = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
           // v0.0.69：专用编辑弹窗（保留上一轮输入便于修改），不再用 window.prompt
-          void showEditModal(oldText, role === 'user' ? '编辑消息（保存后重新生成回复）' : '编辑 AI 回复（保存后使用修改后的内容）').then((next) => {
+          void showEditModal(oldText, role === 'user' ? '编辑消息' : '编辑回复').then((next) => {
             if (next === null || !next.trim()) return;
             if (role === 'user') controller.editUserMessage(message.id, next);
             else controller.editAiMessage(message.id, next);
@@ -2135,6 +2148,27 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     onWebSearch: (state) => {
       showToast(state === 'searching' ? '联网搜索中...' : '搜索完成');
     },
+    // 工作思维流（v0.0.70）：工具调用开始 → 最后 AI 气泡内插状态行"调用工具 X"
+    onToolStart: (name) => {
+      if (lastAiBubble && lastAiBubble.isConnected) {
+        let flow = lastAiBubble.querySelector('[data-msg-flow]') as HTMLElement | null;
+        if (!flow) {
+          flow = document.createElement('div');
+          flow.className = 'ex-msg-flow';
+          flow.setAttribute('data-msg-flow', '');
+          const reason = lastAiBubble.querySelector('[data-msg-reasoning]');
+          const content = lastAiBubble.querySelector('[data-msg-content]');
+          if (reason && reason.parentElement) reason.parentElement.insertBefore(flow, reason.nextSibling);
+          else if (content && content.parentElement) content.parentElement.insertBefore(flow, content);
+          else lastAiBubble.appendChild(flow);
+        }
+        const line = document.createElement('div');
+        line.className = 'ex-msg-flow-line';
+        line.textContent = `调用工具: ${name}`;
+        flow.appendChild(line);
+      }
+      if (statusEl) statusEl.textContent = `调用工具: ${name}...`;
+    },
   });
 
   logger.info('gui', 'Exdark 主题 GUI 已挂载');
@@ -2168,6 +2202,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       window.setTimeout(resetInputUI, 0);
     });
     stopEl.addEventListener('click', controller.stop);
+    continueBtn.addEventListener('click', controller.continueGeneration);
     inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
@@ -2764,6 +2799,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       manageSelected.clear();
       updateManageBar();
       void renderSessionList(controller.getSessionId());
+    });
+    // v0.0.70：管理态点侧边栏外任意处 → 退出管理模式（管理是临时态，点无关区域就该收）
+    document.addEventListener('click', (e) => {
+      if (!manageMode) return;
+      const insideSidebar = sidebar.contains(e.target as Node);
+      if (!insideSidebar) {
+        manageMode = false;
+        manageSelected.clear();
+        updateManageBar();
+        void renderSessionList(controller.getSessionId());
+      }
     });
     // 初始化：工具条默认隐藏
     updateManageBar();

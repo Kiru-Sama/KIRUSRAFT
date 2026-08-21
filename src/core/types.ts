@@ -112,6 +112,8 @@ export interface ChatStreamHandlers {
   onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number; cacheInputTokens?: number }): void;
   /** 可选：联网搜索状态（v0.0.69，APITOOL 同款右上角提示）：searching=模型发起搜索，completed=搜索完成 */
   onWebSearch?(state: 'searching' | 'completed'): void;
+  /** 可选：工具调用开始（v0.0.70 工作思维流）：output_item.added(function_call) / content_block_start(tool_use) 触发，展示"正在调用工具 X" */
+  onToolStart?(name: string): void;
 }
 
 /** 会话级用量统计（v0.0.65：计费卡数据源，随会话落盘） */

@@ -240,6 +240,8 @@ function dispatch(
       if (block && block.type === 'tool_use') {
         const { toolArgs } = getTool();
         setTool(String(block.name ?? ''), String(block.id ?? ''), toolArgs);
+        // 工作思维流（v0.0.70）：工具调用开始——"正在调用工具 X"
+        if (typeof block.name === 'string') handlers.onToolStart?.(block.name);
       }
       break;
     }

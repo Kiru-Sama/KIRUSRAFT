@@ -23,6 +23,8 @@ export interface ChatElements {
   send: HTMLButtonElement;
   /** 中止按钮（发送时显示） */
   stop: HTMLButtonElement;
+  /** 继续生成按钮（可选，v0.0.70）：中止后显示，点击从最后 AI 回复续写 */
+  continueBtn?: HTMLButtonElement;
   /** 状态栏（思考中/生成中/错误提示） */
   status: HTMLElement;
   /** 联网搜索开关（可选） */
@@ -39,6 +41,8 @@ export interface ChatElements {
   onSendAccepted?: () => void;
   /** 联网搜索状态回调（v0.0.69）：GUI 右上角提示"联网搜索中/搜索完成"（APITOOL 同款） */
   onWebSearch?: (state: 'searching' | 'completed') => void;
+  /** 工具调用开始回调（v0.0.70 工作思维流）：GUI 在聊天气泡内插状态行"调用工具 X" */
+  onToolStart?: (name: string) => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
   onLengthWarn?: (count: number, confirm: () => void) => void;
 }
@@ -55,6 +59,8 @@ export interface ChatController {
   getConversationSystemPrompt(): string;
   /** 中止当前流 */
   stop(): void;
+  /** 继续生成（v0.0.70，APITOOL continueGeneration 同款）：中止后从最后一条 AI 回复现有内容续写 */
+  continueGeneration(): void;
   /** 切换会话（中止旧流、落盘、渲染目标会话） */
   switchSession(id: string): Promise<void>;
   /** 当前会话 id（侧边栏高亮用） */
@@ -414,6 +420,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       abortCtrl = new AbortController();
       els.send.style.display = 'none';
       els.stop.style.display = '';
+      if (els.continueBtn) els.continueBtn.style.display = 'none'; // v0.0.70：开始流式隐藏继续按钮
       els.status.textContent = '思考中...';
 
       // validateSend 已校验通过，这里重新读取（config 可能已变，闭包里的旧引用会失效）
@@ -495,6 +502,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
+          onToolStart: (name) => {
+            els.onToolStart?.(name);
+          },
         },
       );
     } catch (error) {
@@ -552,9 +562,40 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.status.textContent = '已中止';
     els.send.style.display = '';
     els.stop.style.display = 'none';
+    if (els.continueBtn) els.continueBtn.style.display = ''; // v0.0.70：中止后可继续生成
     // P2-5：手动中止也算流结束，触发收尾（Markdown 渲染等），与 finally 分支行为一致
     els.onStreamEnd?.();
     saveSessionSafe();
+  }
+
+  /** 继续生成（v0.0.70，APITOOL continueGeneration 同款）：中止后从最后一条 AI 回复现有内容续写。
+   *  复用 streamReplyAt 的续写节点逻辑：以最后 AI 候选为锚，从其现有文本继续流式追加。 */
+  function continueGeneration(): void {
+    if (disposed || streaming) {
+      els.status.textContent = streaming ? '生成中，暂不能继续' : '';
+      return;
+    }
+    // 找最后一条 AI 候选（当前选中链的最后 AI 节点）
+    let aiNodeIndex = -1;
+    let aiMsg: Message | undefined;
+    for (let i = session.nodes.length - 1; i >= 0; i--) {
+      const n = session.nodes[i];
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      const m = n.messages[idx];
+      if (m?.role === 'ai') {
+        aiNodeIndex = i;
+        aiMsg = m;
+        break;
+      }
+    }
+    if (aiNodeIndex < 0 || !aiMsg) return;
+    // 以现有文本为起点续写（v0.0.70）：直接用 aiMsg.parts（引用共享，流式写它即落盘），续写模式清旧气泡
+    let aiParts = aiMsg.parts;
+    if (aiParts.length === 0 || aiParts[0].type !== 'text') {
+      aiParts = [{ type: 'text', text: '' }];
+      aiMsg.parts = aiParts;
+    }
+    void streamReplyAt(aiNodeIndex, aiParts, true);
   }
 
   function renameSession(title: string): void {
@@ -726,6 +767,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     abortCtrl = new AbortController();
     els.send.style.display = 'none';
     els.stop.style.display = '';
+    if (els.continueBtn) els.continueBtn.style.display = 'none';
     els.status.textContent = '思考中...';
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     const provider = ctx.providers.get(currentProfile.id)!;
@@ -801,6 +843,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
+          onToolStart: (name) => {
+            els.onToolStart?.(name);
+          },
         },
       );
     } catch (error) {
@@ -819,9 +864,11 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     }
   }
 
-  /** assistant 候选重新生成：流式写回已 push 的候选节点（不追加新节点，RikkaHub updateCurrentMessages 按节点下标写回） */
-  async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[]): Promise<void> {
+  /** assistant 候选重新生成：流式写回已 push 的候选节点（不追加新节点，RikkaHub updateCurrentMessages 按节点下标写回）。
+   *  continueMode（v0.0.70）：续写模式——aiParts[0] 预置已有文本，先 renderCurrent 清旧气泡，再 append 新气泡（替代旧，无双气泡） */
+  async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[], continueMode = false): Promise<void> {
     if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
+    if (continueMode) renderCurrent(); // 续写：清掉旧气泡（含现有文本），新气泡从现有文本续写
     streaming = true;
     const token = ++streamToken;
     els.onSendAccepted?.();
@@ -834,6 +881,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     abortCtrl = new AbortController();
     els.send.style.display = 'none';
     els.stop.style.display = '';
+    if (els.continueBtn) els.continueBtn.style.display = 'none';
     els.status.textContent = '思考中...';
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     const provider = ctx.providers.get(currentProfile.id)!;
@@ -904,6 +952,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
+          onToolStart: (name) => {
+            els.onToolStart?.(name);
+          },
         },
       );
     } catch (error) {
@@ -965,6 +1016,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     setConversationSystemPrompt,
     getConversationSystemPrompt,
     stop,
+    continueGeneration,
     switchSession,
     getSessionId: () => session.id,
     renameSession,
