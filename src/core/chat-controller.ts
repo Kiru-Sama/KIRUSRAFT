@@ -444,8 +444,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     try {
       const textPreview = parts.map((p) => (p.type === 'text' ? p.text : '[图片]')).join(' ').slice(0, 60);
       logger.info('gui', `发送消息(${els.webSearch?.checked ? '联网' : '普通'}): ${textPreview}`);
-      appendMessage(session, 'user', parts); // 追加 user 节点（单候选）
-      els.messages.appendChild(els.renderMessage('user', parts));
+      const userMsg = appendMessage(session, 'user', parts); // 追加 user 节点（单候选）
+      els.messages.appendChild(els.renderMessage('user', parts, userMsg)); // v0.0.74：传 message 让用户气泡显示编辑按钮
       saveSessionSafe();
       if (clearInput) els.input.value = '';
       els.messages.scrollTop = els.messages.scrollHeight;
