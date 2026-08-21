@@ -45,6 +45,8 @@ export interface ChatElements {
   onToolStart?: (name: string, partIndex: number) => void;
   /** 工具调用完成回调（v0.0.71）：参数已填、标注完成，GUI 可刷新该标注为可展开态 */
   onToolCallDone?: (call: { name: string; args: Record<string, unknown>; rawArguments?: string }) => void;
+  /** 流式增量自动滚动（v0.0.72）：GUI 实现"用户未上滚时才跟随到底"（成熟 chat 同款），替代无条件滚底 */
+  autoScroll?: () => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
   onLengthWarn?: (count: number, confirm: () => void) => void;
 }
@@ -252,9 +254,16 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
    * 流式写入气泡内容：优先写气泡内的 [data-msg-content] 容器（GUI 气泡可保留 meta 区不被覆盖），
    * 无容器时整体回退 textContent（兼容纯文本气泡渲染器，如兜底 GUI）。
    */
+  /**
+   * 流式写入气泡内容：v0.0.72 改 [data-msg-text] 容器（文本段），工具标注 details 是其兄弟节点不被覆盖。
+   * 文本增量只写最后一个文本容器，tool 标注保持原位（成熟 agent 交错布局）。
+   */
   function setMessageContent(bubble: HTMLElement, text: string): void {
-    const target = bubble.querySelector('[data-msg-content]') as HTMLElement | null;
-    if (target) {
+    const content = bubble.querySelector('[data-msg-content]') as HTMLElement | null;
+    if (content) {
+      const containers = content.querySelectorAll('[data-msg-text]');
+      const target = containers.length > 0 ? (containers[containers.length - 1] as HTMLElement) : content;
+      // 纯文本写入（避免 HTML 注入；Markdown 收尾在 onStreamEnd）
       target.textContent = text;
     } else {
       bubble.textContent = text;
@@ -495,7 +504,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
             setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
-            els.messages.scrollTop = els.messages.scrollHeight;
+            els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
           onReasoningDelta: (delta) => {
@@ -841,7 +850,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
             setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
-            els.messages.scrollTop = els.messages.scrollHeight;
+            els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
           onReasoningDelta: (delta) => {
@@ -955,7 +964,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             const part = aiParts[0];
             if (part.type === 'text') part.text += delta;
             setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
-            els.messages.scrollTop = els.messages.scrollHeight;
+            els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
           onReasoningDelta: (delta) => {

@@ -2043,11 +2043,19 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         })
         .join('');
 
-      // 内容区：完整消息直接渲染 Markdown/图片；流式空气泡等 onStreamEnd 收尾再渲染
+      // 内容区（v0.0.72）：流式文本写 [data-msg-text] 容器；工具标注插在文本段之间（成熟 agent 交错布局）
       const content = document.createElement('div');
       content.className = 'ex-msg-content';
       content.setAttribute('data-msg-content', '');
-      content.innerHTML = html;
+      const textContainer = document.createElement('div');
+      textContainer.setAttribute('data-msg-text', '');
+      // 历史消息：直接渲染 html（含 tool 标注 details）；流式空气泡：空文本容器
+      if (message) {
+        content.innerHTML = html;
+      } else {
+        textContainer.textContent = '';
+        content.appendChild(textContainer);
+      }
       bubble.appendChild(content);
 
       // 底部操作条：左下角分支选择器（候选>1 时显示 ←→ n/m，RikkaHub ChatMessageBranch 式）+ 右下角工具（复制/编辑/重发）
@@ -2137,17 +2145,21 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     },
     onStreamEnd: () => {
       if (lastAiBubble && lastAiBubble.isConnected) {
-        // v0.0.71：文本 Markdown 收尾，但保留流式中插入的 [调用工具] 标注节点（不覆盖）
+        // v0.0.72：逐段 Markdown 收尾——文本段各自 Markdown 化，tool 标注 details 原位保留（保持交错顺序）
         const c = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
         if (c) {
-          const textOnly = Array.from(c.childNodes)
-            .filter((n) => !(n instanceof HTMLElement && n.classList.contains('ex-msg-tool')))
-            .map((n) => n.textContent ?? '')
-            .join('');
-          // 重建：文本部分 Markdown 化 + 保留 tool 标注节点
-          const tools = Array.from(c.querySelectorAll('details.ex-msg-tool'));
-          c.innerHTML = textOnly ? renderMarkdown(textOnly) : '';
-          for (const t of tools) c.appendChild(t);
+          for (const child of Array.from(c.childNodes)) {
+            if (child instanceof HTMLElement && child.classList.contains('ex-msg-tool')) continue; // 工具标注保留
+            const text = child.textContent ?? '';
+            if (!text.trim()) continue;
+            if (child instanceof HTMLElement) {
+              child.innerHTML = renderMarkdown(text);
+            } else {
+              const seg = document.createElement('div');
+              seg.innerHTML = renderMarkdown(text);
+              child.replaceWith(seg);
+            }
+          }
         }
         // v0.0.67：流式结束仍无思考内容 → 移除空推理区（不思考就不显示）
         const rEl = lastAiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
@@ -2158,6 +2170,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         const actions = lastAiBubble.querySelector('[data-msg-actions]') as HTMLElement | null;
         if (actions) actions.style.display = '';
       }
+    },
+    // 流式自动滚动（v0.0.72）：用户未上滚（距底 <120px）才跟随到底；上滚看历史不被打断（成熟 chat 同款）
+    autoScroll: () => {
+      const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+      if (nearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     },
     // 发送校验通过、开始流式：清空待发送图片（校验失败时不清，附件保留可重发）
     onSendAccepted: () => {
@@ -2170,22 +2187,36 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     },
     // 工作思维流（v0.0.70）：工具调用开始 → 最后 AI 气泡内插状态行"调用工具 X"
     onToolStart: (name, partIndex) => {
-      // v0.0.71：行内工具标注——往最后 AI 气泡的内容区按顺序插入 [调用工具：xxx] 可展开行
-      // （数据层 tool part 已由 controller push 进消息 parts；这里同步渲染 DOM，不打断流式）
+      // v0.0.72：文本段/工具标注交错——固化当前 [data-msg-text] 文本段，插 [调用工具] 标注，开新文本容器
       if (lastAiBubble && lastAiBubble.isConnected) {
         const content = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
-        const wrap = content ?? lastAiBubble;
-        const details = document.createElement('details');
-        details.className = 'ex-msg-tool';
-        details.dataset.toolPart = String(partIndex);
-        const summary = document.createElement('summary');
-        summary.textContent = `[调用工具：${name}]`;
-        details.appendChild(summary);
-        const pre = document.createElement('pre');
-        pre.textContent = '执行中...';
-        details.appendChild(pre);
-        // 追加到内容区末尾（与文本同流顺序）
-        wrap.appendChild(details);
+        if (content) {
+          // 固化：把当前最后一个文本容器的内容转成普通文本节点（保留样式），移除容器
+          const containers = content.querySelectorAll('[data-msg-text]');
+          const lastText = containers.length > 0 ? (containers[containers.length - 1] as HTMLElement) : null;
+          if (lastText && lastText.textContent) {
+            const seg = document.createElement('div');
+            seg.textContent = lastText.textContent;
+            lastText.replaceWith(seg);
+          } else if (lastText) {
+            lastText.remove();
+          }
+          // 插标注
+          const details = document.createElement('details');
+          details.className = 'ex-msg-tool';
+          details.dataset.toolPart = String(partIndex);
+          const summary = document.createElement('summary');
+          summary.textContent = `[调用工具：${name}]`;
+          details.appendChild(summary);
+          const pre = document.createElement('pre');
+          pre.textContent = '执行中...';
+          details.appendChild(pre);
+          content.appendChild(details);
+          // 开新文本容器（后续流式增量进这里 → 标注后）
+          const next = document.createElement('div');
+          next.setAttribute('data-msg-text', '');
+          content.appendChild(next);
+        }
       }
       if (statusEl) statusEl.textContent = `调用工具: ${name}...`;
     },
