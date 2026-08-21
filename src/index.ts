@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis';
 import * as CoreServices from './plugins/core-services';
 import * as ProviderDeepseek from './plugins/provider-deepseek';
 import * as ToolTime from './plugins/tool-time';
+import * as SandboxProot from './plugins/sandbox-proot';
 import * as FallbackGui from './plugins/fallback-gui';
 import * as UpdateChecker from './plugins/update-checker';
 import * as Exdark from './plugins/theme-exdark';
@@ -29,6 +30,7 @@ const PLUGINS: PluginManifest[] = [
   CoreServices.manifest,
   ProviderDeepseek.manifest,
   ToolTime.manifest,
+  SandboxProot.manifest,
   UpdateChecker.manifest,
   Exdark.manifest,
   FallbackGui.manifest,
