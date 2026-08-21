@@ -19,14 +19,12 @@ export interface ChatElements {
   messages: HTMLElement;
   /** 输入框（input 或 textarea 均可） */
   input: HTMLInputElement | HTMLTextAreaElement;
-  /** 发送按钮（发送时隐藏，结束恢复） */
+  /** 发送按钮（v0.0.73 三态：流式中=中止 / 中止后输入空=继续 / 输入有文=发送，形态由 onStreamState 驱动） */
   send: HTMLButtonElement;
-  /** 中止按钮（发送时显示） */
-  stop: HTMLButtonElement;
-  /** 继续生成按钮（可选，v0.0.70）：中止后显示，点击从最后 AI 回复续写 */
-  continueBtn?: HTMLButtonElement;
   /** 状态栏（思考中/生成中/错误提示） */
   status: HTMLElement;
+  /** 流式状态回调（v0.0.73）：GUI 切换发送按钮形态——streaming=中止样式 / stopped=继续 / idle=发送 */
+  onStreamState?: (state: 'idle' | 'streaming' | 'stopped') => void;
   /** 联网搜索开关（可选） */
   webSearch?: HTMLInputElement;
   /** 渲染一条消息气泡（GUI 自定义样式），返回的元素会被追加到消息列表；message 为完整消息时传第三参 */
@@ -304,8 +302,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       abortCtrl = null;
       streaming = false;
       streamToken++;
-      els.send.style.display = '';
-      els.stop.style.display = 'none';
+      els.onStreamState?.('idle');
       els.status.textContent = ''; // P3：切换会话中止旧流后复位状态栏，避免残留"生成中"
       saveSessionSafe();
     }
@@ -462,9 +459,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       els.messages.scrollTop = els.messages.scrollHeight;
 
       abortCtrl = new AbortController();
-      els.send.style.display = 'none';
-      els.stop.style.display = '';
-      if (els.continueBtn) els.continueBtn.style.display = 'none'; // v0.0.70：开始流式隐藏继续按钮
+      els.onStreamState?.('streaming'); // v0.0.70：开始流式隐藏继续按钮
       els.status.textContent = '思考中...';
 
       // validateSend 已校验通过，这里重新读取（config 可能已变，闭包里的旧引用会失效）
@@ -563,8 +558,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       // 只有自己还是最新流时才复位共享 UI 状态（旧流中止后新流已启动的场景，M1）
       if (token === streamToken) {
         streaming = false;
-        els.send.style.display = '';
-        els.stop.style.display = 'none';
+        els.onStreamState?.('idle');
         abortCtrl = null;
         // 流真正结束后才做收尾（Markdown 渲染等），避免增量期间被破坏
         els.onStreamEnd?.();
@@ -608,9 +602,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     abortCtrl = null;
     streaming = false;
     els.status.textContent = '已中止';
-    els.send.style.display = '';
-    els.stop.style.display = 'none';
-    if (els.continueBtn) els.continueBtn.style.display = ''; // v0.0.70：中止后可继续生成
+    els.onStreamState?.('stopped'); // v0.0.70：中止后可继续生成
     // P2-5：手动中止也算流结束，触发收尾（Markdown 渲染等），与 finally 分支行为一致
     els.onStreamEnd?.();
     saveSessionSafe();
@@ -813,9 +805,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.messages.appendChild(aiBubble);
     els.messages.scrollTop = els.messages.scrollHeight;
     abortCtrl = new AbortController();
-    els.send.style.display = 'none';
-    els.stop.style.display = '';
-    if (els.continueBtn) els.continueBtn.style.display = 'none';
+    els.onStreamState?.('streaming');
     els.status.textContent = '思考中...';
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     const provider = ctx.providers.get(currentProfile.id)!;
@@ -906,8 +896,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     } finally {
       if (token === streamToken) {
         streaming = false;
-        els.send.style.display = '';
-        els.stop.style.display = 'none';
+        els.onStreamState?.('idle');
         abortCtrl = null;
         els.onStreamEnd?.();
       }
@@ -931,9 +920,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     els.messages.appendChild(aiBubble);
     els.messages.scrollTop = els.messages.scrollHeight;
     abortCtrl = new AbortController();
-    els.send.style.display = 'none';
-    els.stop.style.display = '';
-    if (els.continueBtn) els.continueBtn.style.display = 'none';
+    els.onStreamState?.('streaming');
     els.status.textContent = '思考中...';
     const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
     const provider = ctx.providers.get(currentProfile.id)!;
@@ -1019,8 +1006,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     } finally {
       if (token === streamToken) {
         streaming = false;
-        els.send.style.display = '';
-        els.stop.style.display = 'none';
+        els.onStreamState?.('idle');
         abortCtrl = null;
         els.onStreamEnd?.();
       }

@@ -671,10 +671,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <label class="ex-feature-btn" title="上传文件（支持多文件拖拽）">上传<input type="file" data-ex="file" multiple hidden></label>
               <span class="ex-file-indicator" data-ex="file-indicator"></span>
             </div>
+            <!-- v0.0.73：发送/中止/继续 = 同一按钮三态（成熟 chat 设计）——
+                 流式中=中止；中止后输入框空=继续、有文本=发送 -->
             <button class="ex-send-btn" data-ex="send" disabled>发送</button>
-            <button class="ex-send-btn ex-stop-btn" data-ex="stop" style="display:none;">中止</button>
-            <!-- 继续生成（v0.0.70，APITOOL continueGeneration 同款）：中止后显示，从最后 AI 回复续写 -->
-            <button class="ex-send-btn ex-continue-btn" data-ex="continue" style="display:none;">继续</button>
           </div>
         </div>
       </main>
@@ -996,8 +995,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const messagesEl = container.querySelector('[data-ex="messages"]') as HTMLElement;
   const inputEl = container.querySelector('[data-ex="input"]') as HTMLTextAreaElement;
   const sendEl = container.querySelector('[data-ex="send"]') as HTMLButtonElement;
-  const stopEl = container.querySelector('[data-ex="stop"]') as HTMLButtonElement;
-  const continueBtn = container.querySelector('[data-ex="continue"]') as HTMLButtonElement;
   const statusEl = container.querySelector('[data-ex="status"]') as HTMLElement;
   const webSearchEl = container.querySelector('[data-ex="websearch"]') as HTMLInputElement;
   const webSearchBtn = container.querySelector('[data-ex="websearch-btn"]') as HTMLButtonElement;
@@ -1959,8 +1956,27 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     const maxH = Math.round(lineH * 5 + 20);
     inputEl.style.height = Math.min(inputEl.scrollHeight, maxH) + 'px';
   }
+  // v0.0.73：发送按钮三态（idle=发送 / streaming=中止 / stopped=继续或发送）
+  function syncSendState(): void {
+    const state = sendEl.dataset.state ?? 'idle';
+    if (state === 'streaming') {
+      sendEl.textContent = '中止';
+      sendEl.disabled = false;
+      return;
+    }
+    const hasInput = !!inputEl.value.trim() || pendingImages.length > 0;
+    if (state === 'stopped' && !hasInput) {
+      sendEl.textContent = '继续';
+      sendEl.classList.add('ex-stop-btn');
+      sendEl.disabled = false;
+      return;
+    }
+    sendEl.textContent = '发送';
+    sendEl.classList.remove('ex-stop-btn');
+    sendEl.disabled = !hasInput;
+  }
   function updateSendState(): void {
-    sendEl.disabled = !inputEl.value.trim();
+    syncSendState();
   }
   function updateCharCount(): void {
     const n = inputEl.value.length;
@@ -1986,8 +2002,22 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     messages: messagesEl,
     input: inputEl,
     send: sendEl,
-    stop: stopEl,
-    continueBtn,
+    onStreamState: (state) => {
+      // v0.0.73：发送/中止/继续同一按钮三态
+      sendEl.dataset.state = state;
+      if (state === 'streaming') {
+        sendEl.textContent = '中止';
+        sendEl.classList.add('ex-stop-btn');
+        sendEl.disabled = false;
+      } else if (state === 'stopped') {
+        // 中止后：输入框空=继续，有文本=发送（形态由 updateSendState 决定）
+        syncSendState();
+      } else {
+        sendEl.textContent = '发送';
+        sendEl.classList.remove('ex-stop-btn');
+        syncSendState();
+      }
+    },
     status: statusEl,
     webSearch: webSearchEl,
     // 对话超 100k 字符：右上角确认 toast（带"确定发送"按钮），点确定后放行
@@ -2044,17 +2074,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         .join('');
 
       // 内容区（v0.0.72）：流式文本写 [data-msg-text] 容器；工具标注插在文本段之间（成熟 agent 交错布局）
+      // v0.0.73 修复：只有「AI 且无 message」才是流式空气泡（空文本容器）；用户消息/历史消息直接渲染 html
       const content = document.createElement('div');
       content.className = 'ex-msg-content';
       content.setAttribute('data-msg-content', '');
       const textContainer = document.createElement('div');
       textContainer.setAttribute('data-msg-text', '');
-      // 历史消息：直接渲染 html（含 tool 标注 details）；流式空气泡：空文本容器
-      if (message) {
-        content.innerHTML = html;
-      } else {
+      if (role === 'ai' && !message) {
         textContainer.textContent = '';
         content.appendChild(textContainer);
+      } else {
+        content.innerHTML = html;
       }
       bubble.appendChild(content);
 
@@ -2257,10 +2287,18 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     updateModelStatus();
     resetInputUI();
 
-    // 发送 / 中止 / Enter（中文输入法组合态回车不发送）；有待发送图片时走 sendWithAttachments（文本+图片一起发）。
-    // 图片清空由 onSendAccepted 回调执行（发送校验通过才清，失败保留可重发）；压缩中拒绝发送防图片漏发
+    // 发送 / 中止 / 继续 三态按钮（v0.0.73）：流式中点击=中止；中止后输入空=继续、有文=发送
     sendEl.addEventListener('click', () => {
       exitManageIfActive(); // 发送即退出管理模式（管理是临时态）
+      const state = sendEl.dataset.state ?? 'idle';
+      if (state === 'streaming') {
+        controller.stop();
+        return;
+      }
+      if (state === 'stopped' && !inputEl.value.trim() && !pendingImages.length) {
+        controller.continueGeneration();
+        return;
+      }
       if (processingImages > 0) {
         showToast('图片处理中，请稍候...');
         return;
@@ -2272,8 +2310,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
       window.setTimeout(resetInputUI, 0);
     });
-    stopEl.addEventListener('click', controller.stop);
-    continueBtn.addEventListener('click', controller.continueGeneration);
     inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
