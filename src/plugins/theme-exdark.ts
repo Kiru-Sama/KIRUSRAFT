@@ -18,7 +18,24 @@ import { logger, filterByRange, renderEntry, type LogRange } from '../core/logge
 import { defineSchema } from '../core/schema';
 import { VERSION } from '../core/version';
 import type { UIMessagePart, Message } from '../core/types';
+import { resolveModelCapabilities } from '../providers/model-catalog';
 import type { PluginManifest } from '../core/manifest';
+
+/** 用量脚注（v0.0.84 主线 B）：AI 消息底部 tokens / tok/s / 耗时，对齐 RikkaHub TokenUsage */
+function renderUsageFooter(message: Message): HTMLElement {
+  const u = message.usage!;
+  const dur = message.durationSec ?? 0;
+  const rate = dur > 0 ? (u.outputTokens / dur).toFixed(1) : '-';
+  const fmt = (n: number): string => {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  };
+  const foot = document.createElement('div');
+  foot.className = 'ex-msg-usage';
+  foot.textContent = `${fmt(u.totalTokens)} tokens (${fmt(u.cacheInputTokens ?? 0)} cached) · ${fmt(u.outputTokens)} tokens · ${rate} tok/s · ${dur.toFixed(1)}s`;
+  return foot;
+}
 
 export const name = 'ui-exdark';
 /** UI 主题插件元数据：可运行时切换的主题 */
@@ -66,7 +83,7 @@ const STYLE = `
   /* A1：硬影全删（Rikka 分层思想）——浮层用柔和投影（0 8px 32px rgba），焦点用青绿光晕 */
   --ex-shadow:0 8px 32px rgba(0,0,0,.5);
   --ex-sidebar-glass: rgba(42,42,42,0.5);
-  --ex-sidebar-transition: 0.35s cubic-bezier(0.68,-0.55,0.27,1.55);
+  --ex-sidebar-transition: 0.3s cubic-bezier(0.25,0.8,0.25,1);
   --ex-font: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
   height:100%; position:relative; font-family:var(--ex-font);
   color:var(--ex-text); background:var(--ex-bg);
@@ -185,6 +202,10 @@ const STYLE = `
 .ex-model-item { display:block; width:100%; text-align:left; padding:8px 10px; border:none; background:transparent; color:var(--ex-text); font-size:12px; cursor:pointer; font-family:var(--ex-font); border-left:3px solid transparent; }
 .ex-model-item:hover { background:var(--ex-surface2); border-left-color:var(--ex-accent2); }
 .ex-model-item.active { color:var(--ex-accent); border-left-color:var(--ex-accent); font-weight:bold; }
+.ex-model-item .ex-model-inner { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; }
+.ex-model-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.ex-model-tags { display:flex; gap:3px; flex-shrink:0; }
+.ex-model-tag { font-style:normal; font-size:9px; padding:0 4px; border:1px solid var(--ex-border2); color:var(--ex-accent); line-height:1.5; }
 .ex-model-empty { padding:14px; font-size:11px; color:var(--ex-text3); text-align:center; }
 /* ---- 顶栏：粗底边框 + 青绿标题；顶部安全区（状态栏/刘海）适配 ---- */
 .ex-topbar { padding:calc(12px + env(safe-area-inset-top,0px)) 20px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--ex-border); z-index:5; background:var(--ex-surface); flex-wrap:nowrap; gap:8px; }
@@ -207,9 +228,12 @@ const STYLE = `
    把 input-area 挤出屏幕/气泡溢出到输入区（"输入框上方挡气泡"根因） */
 .ex-messages { flex:1; overflow-y:auto; min-height:0; padding:20px 8px 16px; display:flex; flex-direction:column; position:relative; z-index:1; }
 /* 气泡 wrapper：控制宽度与对齐（user 右 / ai 左）；v0.0.67 拉宽到 94%（手机屏窄多利用，留两侧呼吸） */
-.ex-msg-wrap { max-width:94%; margin-bottom:20px; display:flex; flex-direction:column; }
-.ex-msg-wrap.ex-user { margin-left:auto; align-items:flex-end; }
-.ex-msg-wrap.ex-ai { margin-right:auto; align-items:flex-start; }
+.ex-msg-wrap { max-width:94%; margin:0 auto 20px; display:flex; flex-direction:column; width:100%; }
+.ex-msg-wrap.ex-user { align-items:flex-end; }
+.ex-msg-wrap.ex-ai { align-items:flex-start; }
+/* 时间戳：气泡上方（AI 靠左 / user 靠右，v0.0.85 居中布局下显式对齐） */
+.ex-msg-wrap.ex-ai .ex-msg-time { align-self:flex-start; }
+.ex-msg-wrap.ex-user .ex-msg-time { align-self:flex-end; }
 /* 时间戳：气泡外上方（小字，弱化） */
 .ex-msg-time { font-size:10px; color:var(--ex-text3); margin-bottom:4px; padding:0 4px; }
 .ex-message { background:var(--ex-surface2); color:var(--ex-text); line-height:1.6; font-size:13px; position:relative; padding:12px 16px 10px; min-width:120px; width:100%; word-wrap:break-word; word-break:break-word; white-space:pre-wrap; }
@@ -219,6 +243,9 @@ const STYLE = `
 /* 底部操作条：左下角分支选择（<> n/m）+ 右下角工具（复制/编辑），APITOOL 底部按钮布局。
    v0.0.70：按钮不换行不压缩（气泡适应按钮，而非按钮适应气泡） */
 .ex-msg-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; flex-wrap:nowrap; white-space:nowrap; }
+/* v0.0.85：操作按钮定位——AI 气泡：操作（复制/编辑）左下、分支 <> 右下；user 气泡：操作右下、分支左下（分支实际由候选>1 的节点触发） */
+.ex-msg-wrap.ex-ai .ex-msg-actions { justify-content:flex-start; }
+.ex-msg-wrap.ex-ai .ex-msg-tools { margin-left:0; }
 .ex-msg-branch { display:flex; align-items:center; gap:2px; font-size:10px; color:var(--ex-text2); flex-shrink:0; }
 .ex-msg-arrow { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; line-height:1; padding:2px 6px; cursor:pointer; font-family:var(--ex-font); flex-shrink:0; }
 .ex-msg-arrow:hover:not(:disabled) { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
@@ -228,20 +255,46 @@ const STYLE = `
 .ex-msg-btn { background:none; border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:1px 7px; cursor:pointer; transition:all .2s; font-weight:bold; font-family:var(--ex-font); flex-shrink:0; }
 .ex-msg-btn:hover { background:var(--ex-accent); color:var(--ex-bg); border-color:var(--ex-accent); }
 .ex-msg-btn.copied { background:var(--ex-accent2) !important; color:var(--ex-bg); border-color:var(--ex-accent2) !important; }
-/* AI 思考过程（v0.0.67）：流式直显、不折叠；弱化区分（斜体/灰底/小字） */
-.ex-msg-reasoning { margin-bottom:8px; border-left:3px solid var(--ex-border2); background:var(--ex-bg2); font-size:11px; color:var(--ex-text3); padding:4px 8px; }
-.ex-msg-reasoning-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--ex-text3); margin-bottom:4px; font-weight:bold; }
-.ex-msg-reasoning [data-msg-reasoning] { white-space:pre-wrap; word-break:break-word; line-height:1.5; font-style:italic; }
+/* AI 思考过程（v0.0.84，主线 B）：折叠卡（summary 可展开，对齐 RikkaHub 思考折叠卡） */
+.ex-msg-reasoning { margin-bottom:8px; border-left:3px solid var(--ex-accent2); background:var(--ex-bg2); font-size:11px; color:var(--ex-text3); }
+.ex-msg-reasoning summary { padding:6px 8px; cursor:pointer; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--ex-text3); font-weight:bold; user-select:none; }
+.ex-msg-reasoning summary:hover { color:var(--ex-accent); }
+.ex-msg-reasoning summary::before { content:'▸ '; color:var(--ex-accent2); }
+.ex-msg-reasoning[open] summary::before { content:'▾ '; }
+.ex-msg-reasoning [data-msg-reasoning] { padding:0 8px 6px; white-space:pre-wrap; word-break:break-word; line-height:1.5; font-style:italic; }
 .ex-user .ex-msg-reasoning { display:none; } /* 推理只属于 AI */
 /* 工作思维流（v0.0.70）：AI 气泡内工具调用状态行（参考成熟 agent 方案，展示 AI 正在做什么） */
 .ex-msg-flow { margin-bottom:8px; display:flex; flex-direction:column; gap:2px; }
 .ex-msg-flow-line { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:0.5px; }
 .ex-msg-flow-line::before { content:'▸ '; color:var(--ex-accent2); }
-/* 工具调用标注（v0.0.71）：行内 [调用工具：xxx]，可展开看参数（成熟 agent 风格） */
-.ex-msg-tool { margin:6px 0; font-size:11px; color:var(--ex-text2); }
-.ex-msg-tool summary { cursor:pointer; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-accent); user-select:none; }
-.ex-msg-tool summary:hover { color:var(--ex-accent2); }
-.ex-msg-tool pre { margin:4px 0 0; padding:6px 8px; background:var(--ex-bg2); border-left:2px solid var(--ex-border2); font-size:10px; overflow-x:auto; white-space:pre-wrap; word-break:break-word; }
+/* 工具卡（v0.0.84，主线 B）：shell 终端卡 + 通用卡（对齐 RikkaHub 工具卡） */
+.ex-tool-card { margin:6px 0; border:1px solid var(--ex-border2); background:var(--ex-surface2); font-size:11px; color:var(--ex-text2); }
+.ex-tool-title { padding:5px 8px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; font-weight:bold; color:var(--ex-accent); border-bottom:1px solid var(--ex-border); }
+.ex-tool-cmd { margin:0; padding:5px 8px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-text); white-space:pre-wrap; word-break:break-word; }
+.ex-tool-args { margin:0; padding:5px 8px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-text3); white-space:pre-wrap; word-break:break-word; }
+.ex-tool-out { margin:0; padding:5px 8px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-text2); white-space:pre-wrap; word-break:break-word; border-top:1px solid var(--ex-border); }
+.ex-tool-exit { padding:3px 8px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-weight:bold; }
+.ex-tool-exit.ok { color:var(--ex-accent); }
+.ex-tool-exit.err { color:var(--ex-accent2); }
+.ex-tool-loading { padding:5px 8px; font-size:10px; color:var(--ex-text3); }
+/* 思考块 + 工具步骤（v0.0.85 对齐 RikkaHub ChainOfThought/ThinkingBlock）：连续工具聚合折叠，步骤=状态+名称+参数+结果
+   white-space:normal 阻断 .ex-message 的 pre-wrap 继承——否则历史模板的换行缩进会被渲染成空白行（间距崩） */
+.ex-think-block { margin:6px 0; border:1px solid var(--ex-border); border-left:3px solid var(--ex-accent); background:var(--ex-surface2); white-space:normal; }
+.ex-think-block > summary.ex-think-label { padding:6px 10px; font-size:10px; color:var(--ex-text3); cursor:pointer; user-select:none; letter-spacing:0.5px; }
+.ex-think-block > summary.ex-think-label::after { content:' ▾'; color:var(--ex-accent2); }
+.ex-think-block > summary.ex-think-label:hover { color:var(--ex-accent); }
+.ex-tool-step { padding:5px 10px; border-top:1px solid var(--ex-border); white-space:normal; }
+.ex-tool-step:first-of-type { border-top:none; }
+.ex-tool-step-head { display:flex; align-items:center; gap:7px; }
+.ex-tool-step-icon { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; flex-shrink:0; font-size:10px; color:var(--ex-text3); }
+.ex-tool-step-icon.run { animation:ex-spin 1s linear infinite; }
+.ex-tool-step-icon.ok { color:var(--ex-accent); }
+.ex-tool-step-name { font-size:11px; font-weight:700; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-text); word-break:break-all; }
+.ex-tool-step .ex-tool-args { margin:4px 0 0; padding:4px 6px; background:var(--ex-bg); border-radius:0; border:none; border-top:none; }
+.ex-tool-step .ex-tool-out { margin:4px 0 0; padding:4px 6px; background:var(--ex-bg); border-radius:0; border:none; border-top:none; }
+.ex-tool-step .ex-tool-loading { padding:4px 6px 0; }
+@keyframes ex-spin { to { transform:rotate(360deg); } }
+.ex-msg-usage { margin:6px 0 0; font-size:9px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:0.3px; }
 /* ---- 消息 Markdown 渲染（仅白名单标签，文本已 esc 全量转义） ---- */
 .ex-msg-content > :first-child { margin-top:0; }
 .ex-msg-content > :last-child { margin-bottom:0; }
@@ -320,7 +373,8 @@ const STYLE = `
   .ex-sidebar-mask { display:none; }
   .ex-sidebar.open + .ex-sidebar-mask { display:block; }
   .ex-toggle { display:block; }
-  .ex-message { max-width:92%; font-size:12px; padding:10px 12px; margin-bottom:22px; }
+  /* v0.0.85：宽窄屏统一居中气泡（窄屏同走 .ex-msg-wrap 默认 max-width:94% + margin:0 auto） */
+  .ex-message { max-width:100%; font-size:12px; padding:10px 12px; margin-bottom:22px; }
   .ex-topbar { padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px; gap:6px; }
   .ex-title-wrap h1 { font-size:16px; letter-spacing:2px; }
   .ex-model-sub { font-size:9px; }
@@ -509,6 +563,10 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-capability-body::-webkit-scrollbar-thumb:hover { background:var(--ex-accent); }
 /* 模式切换：两选项按钮横排（当前模式高亮；Exdark 直角硬边框风格） */
 .ex-capability-mode { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px 0; }
+.ex-capability-mode-3 { grid-template-columns:2fr 1fr; }
+.ex-capability-mode-3 .ex-mode-btn:nth-child(1) { grid-column:1; grid-row:1; }
+.ex-capability-mode-3 .ex-mode-btn:nth-child(2) { grid-column:2; grid-row:1; }
+.ex-capability-mode-3 .ex-mode-btn:nth-child(3) { grid-column:1 / -1; grid-row:2; }
 .ex-mode-btn { padding:12px 10px; border:1px solid var(--ex-border2); background:var(--ex-surface); color:var(--ex-text2); cursor:pointer; font-size:13px; font-weight:900; text-align:center; font-family:var(--ex-font); box-shadow:0 1px 6px rgba(0,0,0,.25); transition:all .2s; }
 .ex-mode-btn:hover { border-color:var(--ex-accent); color:var(--ex-text); }
 .ex-mode-btn.active { background:var(--ex-accent); border-color:var(--ex-accent); color:var(--ex-bg); box-shadow:0 1px 6px rgba(0,0,0,.25); }
@@ -572,6 +630,53 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-tool-badge { display:inline-block; font-size:9px; padding:0 5px; background:var(--ex-accent2); color:var(--ex-bg); font-weight:bold; margin-left:4px; vertical-align:middle; border-radius:0; }
 .ex-tool-switch input:checked + .ex-tool-switch-track { background:var(--ex-accent); border-color:var(--ex-accent); }
 .ex-tool-switch input:checked + .ex-tool-switch-track::after { left:24px; background:var(--ex-bg); }
+/* 能力设置·工具管理：功能分组 + 卡片（grid：行1 工具名+开关；行2 详情+小字；开关/小字同列对齐） */
+.ex-tool-group { margin-bottom:14px; }
+.ex-tool-group-title { font-size:11px; font-weight:900; color:var(--ex-accent); border-left:3px solid var(--ex-accent); padding-left:8px; margin:10px 0 8px; letter-spacing:1px; }
+.ex-tool-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.ex-tool-mgmt-card { display:grid; grid-template-columns:1fr auto; gap:6px 12px; background:var(--ex-surface2); border:1px solid var(--ex-border); padding:12px; }
+.ex-tool-name { grid-column:1; grid-row:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:900; color:var(--ex-text); }
+.ex-tool-switch-row { grid-column:2; grid-row:1; display:grid; grid-template-columns:44px 44px; gap:12px; align-items:center; }
+.ex-tool-more { grid-column:1; grid-row:2; display:flex; flex-direction:column; min-width:0; }
+.ex-tool-more summary { cursor:pointer; font-size:10px; color:var(--ex-text3); user-select:none; white-space:nowrap; }
+.ex-tool-more summary:hover { color:var(--ex-accent); }
+.ex-tool-more summary::after { content:' ▾'; color:var(--ex-accent2); }
+.ex-tool-label-row { grid-column:2; grid-row:2; display:grid; grid-template-columns:44px 44px; gap:12px; }
+.ex-tool-label-row span { font-size:9px; color:var(--ex-text2); text-align:center; }
+.ex-tool-desc { font-size:11px; color:var(--ex-text2); margin-top:6px; line-height:1.5; word-break:break-all; }
+.ex-tool-params { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+.ex-tool-chip { font-size:9px; padding:1px 6px; border:1px solid var(--ex-border2); color:var(--ex-accent); }
+/* 沙箱管理独立页（全屏浮层；工作区 + 可视化文件树） */
+.ex-sandbox-manage { display:none; position:fixed; inset:0; z-index:5000; background:var(--ex-bg); flex-direction:column; overflow:hidden; color:var(--ex-text); }
+.ex-sandbox-manage.show { display:flex; }
+.ex-sandbox-manage-head { display:flex; align-items:center; gap:10px; flex-shrink:0; padding:calc(14px + env(safe-area-inset-top,0px)) 20px 14px; background:var(--ex-surface); border-bottom:1px solid var(--ex-border); }
+.ex-sandbox-manage-head h2 { margin:0; font-size:18px; color:var(--ex-accent); letter-spacing:2px; font-weight:900; }
+.ex-sandbox-manage-body { flex:1; overflow-y:auto; padding:20px 24px 40px; min-height:0; }
+.ex-sandbox-file-row { display:flex; gap:8px; padding:10px 0; }
+.ex-sandbox-file-row input { flex:1; min-width:0; padding:8px 10px; background:var(--ex-bg); border:1px solid var(--ex-border2); color:var(--ex-text); font-size:12px; font-family:var(--ex-font); }
+.ex-sandbox-file-row button { flex-shrink:0; }
+.ex-sandbox-wslist { display:flex; flex-direction:column; gap:6px; }
+/* 工作区列表（v0.0.85 对齐 RikkaHub WorkspaceSelectSheet 的 ListItem：图标+名称+状态副标题+选中勾+高亮圆角） */
+.ex-sandbox-ws-item { display:flex; align-items:center; gap:12px; width:100%; padding:10px 12px; background:transparent; border:1px solid transparent; border-radius:10px; color:var(--ex-text); cursor:pointer; font-family:var(--ex-font); font-size:12px; text-align:left; transition:background .15s; }
+.ex-sandbox-ws-item:hover { background:var(--ex-surface); }
+.ex-sandbox-ws-item.active { background:var(--ex-surface2); border-color:var(--ex-border2); }
+.ex-sandbox-ws-icon { flex-shrink:0; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; color:var(--ex-accent2); }
+.ex-sandbox-ws-icon svg { width:18px; height:18px; }
+.ex-sandbox-ws-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.ex-sandbox-ws-name { font-size:13px; font-weight:700; color:var(--ex-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ex-sandbox-ws-id { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ex-sandbox-ws-check { flex-shrink:0; width:18px; font-size:12px; color:var(--ex-accent); font-weight:900; text-align:center; }
+.ex-sandbox-ws-state { font-size:10px; flex-shrink:0; }
+.ex-sandbox-tree { margin-top:8px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; color:var(--ex-text); }
+.ex-sandbox-tree-item { padding:4px 0; cursor:default; display:flex; align-items:center; gap:6px; }
+.ex-sandbox-tree-item.dir { cursor:pointer; color:var(--ex-accent); }
+.ex-sandbox-tree-item.dir:hover { background:var(--ex-surface2); }
+.ex-sandbox-tree-icon { flex-shrink:0; width:14px; color:var(--ex-accent2); }
+.ex-sandbox-tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ex-sandbox-tree-size { margin-left:auto; font-size:10px; color:var(--ex-text3); }
+.ex-sandbox-tree-children { border-left:1px solid var(--ex-border2); margin-left:6px; padding-left:4px; }
+@media (max-width:768px){ .ex-sandbox-manage-body { padding:16px 14px 40px; } }
+@media (max-width:768px){ .ex-tool-grid { grid-template-columns:1fr; } }
 .ex-plugin-detail { display:none; padding:0 14px 12px; border-top:2px solid var(--ex-border); }
 .ex-plugin-card.open .ex-plugin-detail { display:block; }
 .ex-plugin-detail-row { font-size:11px; color:var(--ex-text2); margin:6px 0; line-height:1.6; }
@@ -956,9 +1061,10 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         <div class="ex-section">
           <div class="ex-section-title">运行模式</div>
           <div class="ex-card-group">
-            <div class="ex-capability-mode">
-              <button type="button" class="ex-mode-btn" data-ex-mode="agent">[代理模式]</button>
-              <button type="button" class="ex-mode-btn" data-ex-mode="chat">[对话模式]</button>
+            <div class="ex-capability-mode ex-capability-mode-3">
+              <button type="button" class="ex-mode-btn" data-ex-mode="agent">[ 代理模式 ]</button>
+              <button type="button" class="ex-mode-btn" data-ex="sandboxManage">沙箱管理</button>
+              <button type="button" class="ex-mode-btn" data-ex-mode="chat">[ 对话模式 ]</button>
             </div>
             <div class="ex-agent-note">代理模式按下方工具开关向 AI 发送工具；对话模式不带任何工具。web_search 由输入区联网搜索开关独立控制。</div>
           </div>
@@ -970,6 +1076,19 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             <div class="ex-capability-tools" data-ex="capability-tools">工具列表加载中...</div>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- 沙箱管理独立页（工作区 + 可视化文件树，参考 RikkaHub） -->
+    <div class="ex-sandbox-manage" data-ex="sandbox-manage">
+      <div class="ex-sandbox-manage-head">
+        <button type="button" class="ex-settings-back" data-ex="sandboxBack" title="返回">←</button>
+        <h2>沙箱管理</h2>
+      </div>
+      <div class="ex-sandbox-manage-body">
+        <div class="ex-section-title">工作区</div>
+        <div class="ex-sandbox-wslist" data-ex="sandbox-wslist">加载中...</div>
+        <div class="ex-section-title">文件</div>
+        <div class="ex-sandbox-tree" data-ex="sandbox-tree">选择工作区查看文件树</div>
       </div>
     </div>
     <div class="ex-toast-container" data-ex="toast"></div>
@@ -1520,6 +1639,114 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       .replace(/'/g, '&#39;');
   }
 
+  /** 沙箱管理页初始化：绑定打开/关闭 + 递归文件树（参考 RikkaHub） */
+  function initSandboxManage(): void {
+    const manage = container.querySelector('[data-ex="sandbox-manage"]') as HTMLElement | null;
+    const wsListEl = container.querySelector('[data-ex="sandbox-wslist"]') as HTMLElement | null;
+    const treeEl = container.querySelector('[data-ex="sandbox-tree"]') as HTMLElement | null;
+    const openBtn = container.querySelector('[data-ex="sandboxManage"]') as HTMLButtonElement | null;
+    const backBtn = container.querySelector('[data-ex="sandboxBack"]') as HTMLButtonElement | null;
+    if (!manage) return;
+    openBtn?.addEventListener('click', () => { manage.classList.add('show'); void loadWorkspaceList(); });
+    backBtn?.addEventListener('click', () => manage.classList.remove('show'));
+    // RikkaHub 式：打开自动列工作区，点某个工作区即展开其文件树
+    async function loadWorkspaceList(): Promise<void> {
+      if (!wsListEl) return;
+      wsListEl.innerHTML = '<div>加载中...</div>';
+      try {
+        const parts = await ctx.tools.execute('workspace_list', {});
+        const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+        const rows = text.split('\n').map((l) => l.trim()).filter(Boolean);
+        if (rows.length === 0) { wsListEl.innerHTML = '<div>（暂无工作区，可在对话中让 AI 创建）</div>'; return; }
+        wsListEl.innerHTML = '';
+        for (const line of rows) {
+          const cols = line.split(/\s+/);
+          if (cols.length < 2) continue;
+          const id = cols[0];
+          const name = cols[1];
+          const state = cols[2] === '✓' ? '已装 rootfs' : cols[2] === '✗' ? '未装 rootfs' : '';
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'ex-sandbox-ws-item';
+          // v0.0.85：对齐 RikkaHub ListItem（图标 + 名称 + 状态副标题 + 右侧选中勾）
+          const iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5z"/><path d="M12 12v10"/><path d="M3 7l9 5 9-5"/></svg>';
+          item.innerHTML = `<span class="ex-sandbox-ws-icon">${iconSvg}</span><span class="ex-sandbox-ws-main"><span class="ex-sandbox-ws-name">${esc(name)}</span><span class="ex-sandbox-ws-id">${esc(id)}${state ? ` · ${esc(state)}` : ''}</span></span><span class="ex-sandbox-ws-check"></span>`;
+          item.addEventListener('click', () => {
+            wsListEl.querySelectorAll('.ex-sandbox-ws-item').forEach((n) => {
+              n.classList.remove('active');
+              const c = n.querySelector('.ex-sandbox-ws-check') as HTMLElement | null;
+              if (c) c.textContent = '';
+            });
+            item.classList.add('active');
+            const check = item.querySelector('.ex-sandbox-ws-check') as HTMLElement | null;
+            if (check) check.textContent = '✓';
+            if (treeEl) void loadSandboxDir(id, '/workspace', treeEl, 0);
+          });
+          wsListEl.appendChild(item);
+        }
+      } catch {
+        wsListEl.innerHTML = '<div>工作区列表读取失败</div>';
+      }
+    }
+  }
+
+  /** 递归加载沙箱目录（解析 workspace_list_files 返回，目录可展开） */
+  async function loadSandboxDir(wsId: string, path: string, parent: HTMLElement, depth: number): Promise<void> {
+    parent.innerHTML = '<div>加载中...</div>';
+    try {
+      const parts = await ctx.tools.execute('workspace_list_files', { workspaceId: wsId, path });
+      const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+      const items = parseSandboxList(text);
+      if (items.length === 0) { parent.innerHTML = '<div>（空目录）</div>'; return; }
+      parent.innerHTML = '';
+      for (const it of items) {
+        const row = document.createElement('div');
+        row.className = 'ex-sandbox-tree-item';
+        row.style.paddingLeft = `${depth * 16 + 8}px`;
+        const icon = it.type === 'dir' ? '▸' : '·';
+        row.innerHTML = `<span class="ex-sandbox-tree-icon">${icon}</span> <span class="ex-sandbox-tree-name">${esc(it.name)}</span>${it.type === 'file' ? ` <span class="ex-sandbox-tree-size">${esc(it.size)}</span>` : ''}`;
+        if (it.type === 'dir') {
+          row.classList.add('dir');
+          row.addEventListener('click', async () => {
+            const opened = row.classList.toggle('open');
+            const iconEl = row.querySelector('.ex-sandbox-tree-icon') as HTMLElement;
+            if (opened) {
+              iconEl.textContent = '▾';
+              const child = document.createElement('div');
+              child.className = 'ex-sandbox-tree-children';
+              row.appendChild(child);
+              await loadSandboxDir(wsId, `${path === '/' ? '' : path}/${it.name}`, child, depth + 1);
+            } else {
+              iconEl.textContent = '▸';
+              row.querySelector('.ex-sandbox-tree-children')?.remove();
+            }
+          });
+        }
+        parent.appendChild(row);
+      }
+    } catch {
+      parent.innerHTML = '<div>读取失败</div>';
+    }
+  }
+
+  /** 解析沙箱文件列表文本 → [{name,type,size}]（[目录]/[文件] 前缀） */
+  function parseSandboxList(text: string): { name: string; type: 'dir' | 'file'; size: string }[] {
+    const out: { name: string; type: 'dir' | 'file'; size: string }[] = [];
+    for (const raw of text.split('\n')) {
+      const l = raw.trim();
+      if (!l) continue;
+      if (l.startsWith('[目录]')) out.push({ name: l.slice(3).trim().split(/\s+/)[0], type: 'dir', size: '' });
+      else if (l.startsWith('[文件]')) {
+        const rest = l.slice(3).trim();
+        const sp = rest.lastIndexOf(' ');
+        const size = sp >= 0 ? rest.slice(sp + 1) : '';
+        const name = sp >= 0 ? rest.slice(0, sp) : rest;
+        out.push({ name, type: 'file', size });
+      }
+    }
+    return out;
+  }
+
   /** 渲染能力设置页的工具管理列表（列出 ctx.tools 全部工具；开关写入 config.agent.enabledTools，无记录=默认开） */
   function renderCapabilityTools(): void {
     const listEl = container.querySelector('[data-ex="capability-tools"]') as HTMLElement | null;
@@ -1531,60 +1758,75 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
     const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
     const enabledTools = (agent.enabledTools as Record<string, boolean> | undefined) ?? {};
-    // v0.0.82：免审批白名单——跳过审批直接执行（存 config.agent.skipApproval）
-    const skipApproval = (agent.skipApproval as Record<string, boolean> | undefined) ?? {};
-    listEl.innerHTML = tools
-      .map((t) => {
-        const on = enabledTools[t.name] !== false;
-        const needApprove = !!(t.needsApproval ?? false);
-        const skip = skipApproval[t.name] === true;
-        return `<div class="ex-tool-row">
-          <div class="ex-tool-info">
-            <div class="ex-tool-name">${esc(t.name)}${needApprove ? ' <span class="ex-tool-badge">需审批</span>' : ''}</div>
-            <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
-          </div>
-          <div class="ex-tool-actions">
-            ${needApprove ? `<label class="ex-tool-switch" title="${skip ? '需审批' : '免审批'}" style="margin-right:6px;">
-              <input type="checkbox" data-ex-tool-skip="${esc(t.name)}" ${skip ? 'checked' : ''} />
-              <span class="ex-tool-switch-track" style="width:28px;"></span>
-            </label>` : ''}
-            <label class="ex-tool-switch" title="${on ? '停用' : '启用'}">
-              <input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} />
-              <span class="ex-tool-switch-track"></span>
-            </label>
-          </div>
-        </div>`;
-      })
+    // v0.0.85：RikkaHub 布局——功能分组 + 卡片（工具名 + 并排「需审批」「启用」开关 + 展开详情/参数芯片）
+    const groups: { title: string; items: typeof tools }[] = [
+      { title: '沙箱', items: [] },
+      { title: '技能', items: [] },
+      { title: '系统', items: [] },
+    ];
+    for (const t of tools) {
+      if (t.name.startsWith('workspace_')) groups[0].items.push(t);
+      else if (t.name === 'sandbox_skill') groups[1].items.push(t);
+      else groups[2].items.push(t);
+    }
+    const needsApproval = (agent.needsApproval as Record<string, boolean> | undefined) ?? {};
+    const paramChips = (t: (typeof tools)[number]): string => {
+      const props = t.parameters?.properties ?? {};
+      const keys = Object.keys(props);
+      if (keys.length === 0) return '';
+      return `<div class="ex-tool-params">${keys.map((k) => `<span class="ex-tool-chip">${esc(k)}</span>`).join('')}</div>`;
+    };
+    listEl.innerHTML = groups
+      .filter((g) => g.items.length > 0)
+      .map(
+        (g) => `<div class="ex-tool-group">
+        <div class="ex-tool-group-title">${esc(g.title)}</div>
+        <div class="ex-tool-grid">${g.items
+          .map((t) => {
+            const on = enabledTools[t.name] !== false;
+            const need = needsApproval[t.name] ?? (t.needsApproval ?? false);
+            return `<div class="ex-tool-mgmt-card">
+            <span class="ex-tool-name">${esc(t.name)}</span>
+            <div class="ex-tool-switch-row">
+              <label class="ex-tool-switch" title="${need ? '当前需审批' : '免审批'}"><input type="checkbox" data-ex-tool-approve="${esc(t.name)}" ${need ? 'checked' : ''} /><span class="ex-tool-switch-track"></span></label>
+              <label class="ex-tool-switch" title="${on ? '停用' : '启用'}"><input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} /><span class="ex-tool-switch-track"></span></label>
+            </div>
+            <details class="ex-tool-more">
+              <summary>详情</summary>
+              <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
+              ${paramChips(t)}
+            </details>
+            <div class="ex-tool-label-row"><span>审批</span><span>启用</span></div>
+          </div>`;
+          })
+          .join('')}</div>
+      </div>`,
+      )
       .join('');
+    // 启用开关
     listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-toggle]').forEach((chk) => {
       chk.addEventListener('change', () => {
         const name = chk.dataset.exToolToggle;
         if (!name) return;
         const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
         const enabledTools = { ...((agent.enabledTools as Record<string, boolean> | undefined) ?? {}) };
-        if (chk.checked) {
-          delete enabledTools[name]; // 默认全开：启用 = 不记录，恢复默认
-        } else {
-          enabledTools[name] = false;
-        }
+        if (chk.checked) delete enabledTools[name];
+        else enabledTools[name] = false;
         ctx.config.set('agent', { ...agent, enabledTools });
         showToast(chk.checked ? `已启用工具 ${name}` : `已停用工具 ${name}`);
       });
     });
-    // v0.0.82：免审批切换（跳过审批=工具直接执行，不提审批弹窗）
-    listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-skip]').forEach((chk) => {
+    // 需审批开关（用户可给任意工具设置需审批，存 config.agent.needsApproval）
+    listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-approve]').forEach((chk) => {
       chk.addEventListener('change', () => {
-        const name = chk.dataset.exToolSkip;
+        const name = chk.dataset.exToolApprove;
         if (!name) return;
         const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
-        const skipApproval = { ...((agent.skipApproval as Record<string, boolean> | undefined) ?? {}) };
-        if (chk.checked) {
-          skipApproval[name] = true;
-        } else {
-          delete skipApproval[name];
-        }
-        ctx.config.set('agent', { ...agent, skipApproval });
-        showToast(chk.checked ? `${name} 已设为免审批` : `${name} 需审批`);
+        const needsApproval = { ...((agent.needsApproval as Record<string, boolean> | undefined) ?? {}) };
+        if (chk.checked) needsApproval[name] = true;
+        else delete needsApproval[name];
+        ctx.config.set('agent', { ...agent, needsApproval });
+        showToast(chk.checked ? `${name} 已设为需审批` : `${name} 已设为免审批`);
       });
     });
   }
@@ -2069,22 +2311,29 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         minute: '2-digit',
       });
       const editedMark = role === 'ai' && message?.editedByUser ? ' · 已修改' : '';
-      timeLabel.textContent = timeText + editedMark;
+      // v0.0.85：称呼在气泡上方时间旁——AI 称呼在时间左边、user（你）称呼在时间右边（居中布局下区分角色）
+      timeLabel.textContent = role === 'ai'
+        ? `AI · ${timeText}${editedMark}`
+        : `${timeText} · 你${editedMark}`;
       wrap.appendChild(timeLabel);
 
       const bubble = document.createElement('div');
       bubble.className = `ex-message ex-${role}`;
-      // AI 思考过程（v0.0.67）：流式直接输出、不折叠隐藏。有思考内容才创建；流式空气泡先创建（等首增量）
+      // AI 思考过程（v0.0.84，主线 B）：折叠卡（summary + 内容），对齐 RikkaHub 思考折叠卡。
+      // 流式空气泡默认展开（实时看思考）；已结束默认收起，点击展开。
       if (role === 'ai') {
         const hasReasoning = (message?.reasoning ?? '').length > 0;
         if (hasReasoning || !message) {
-          const reasonEl = document.createElement('div');
+          const reasonEl = document.createElement('details');
           reasonEl.className = 'ex-msg-reasoning';
-          if (!hasReasoning) reasonEl.style.display = 'none'; // 流式空气泡：等首个思考增量再显示
-          const label = document.createElement('div');
-          label.className = 'ex-msg-reasoning-label';
-          label.textContent = '思考';
-          reasonEl.appendChild(label);
+          if (!hasReasoning) {
+            reasonEl.style.display = 'none'; // 流式空气泡：等首个思考增量再显示
+            reasonEl.setAttribute('open', ''); // 展开，首增量后实时显示思考
+          }
+          const summary = document.createElement('summary');
+          summary.className = 'ex-msg-reasoning-label';
+          summary.textContent = '思考过程';
+          reasonEl.appendChild(summary);
           const bodyEl = document.createElement('div');
           bodyEl.setAttribute('data-msg-reasoning', '');
           bodyEl.textContent = message?.reasoning ?? '';
@@ -2092,18 +2341,42 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           bubble.appendChild(reasonEl);
         }
       }
-      // 多模态渲染：文本→Markdown，图片→img，工具标注→可展开行 [调用工具：xxx]（v0.0.71，成熟 agent 风格）
-      const html = parts
-        .map((p) => {
-          if (p.type === 'text') return p.text ? renderMarkdown(p.text) : '';
-          if (p.type === 'image') return `<img class="ex-msg-img" src="${esc(p.imageUrl)}" alt="${esc(p.alt ?? '图片')}" />`;
-          if (p.type === 'tool') {
-            // 工具标注：可折叠，展开看参数（成熟 agent 的 tool call 卡片）
-            return `<details class="ex-msg-tool"><summary>[调用工具：${esc(p.name)}${p.done ? ' ✓' : ''}]</summary><pre>${esc(p.args ?? '执行中...')}</pre></details>`;
-          }
-          return '';
-        })
-        .join('');
+      // 多模态渲染（v0.0.85 对齐 RikkaHub groupMessageParts）：连续 tool 聚成思考块（details 折叠），
+      // 其余每个 part 独立内容块，按数组顺序渲染（文本→Markdown，图片→img，工具→步骤行）
+      const toolStepHtml = (p: Extract<UIMessagePart, { type: 'tool' }>, index: number): string => {
+        const done = p.done;
+        const args = p.args ?? '';
+        const result = p.result ?? '';
+        return `<div class="ex-tool-step" data-tool-part="${index}">
+          <div class="ex-tool-step-head">
+            <span class="ex-tool-step-icon ${done ? 'ok' : 'run'}">${done ? '✓' : '◦'}</span>
+            <span class="ex-tool-step-name">${esc(p.name)}</span>
+          </div>
+          ${args && args !== '{}' ? `<pre class="ex-tool-args">${esc(args)}</pre>` : ''}
+          ${done ? `<pre class="ex-tool-out">${esc(result || '(无输出)')}</pre>` : '<div class="ex-tool-loading">执行中...</div>'}
+        </div>`;
+      };
+      const blocks: string[] = [];
+      let currentTools: { part: Extract<UIMessagePart, { type: 'tool' }>; index: number }[] = [];
+      const flushTools = (): void => {
+        if (currentTools.length === 0) return;
+        blocks.push(`<details class="ex-think-block" open>
+          <summary class="ex-think-label">工具调用 ×${currentTools.length}</summary>
+          ${currentTools.map(({ part, index }) => toolStepHtml(part, index)).join('')}
+        </details>`);
+        currentTools = [];
+      };
+      parts.forEach((p, index) => {
+        if (p.type === 'tool') {
+          currentTools.push({ part: p, index });
+          return;
+        }
+        flushTools();
+        if (p.type === 'text') blocks.push(p.text ? renderMarkdown(p.text) : '');
+        else if (p.type === 'image') blocks.push(`<img class="ex-msg-img" src="${esc(p.imageUrl)}" alt="${esc(p.alt ?? '图片')}" />`);
+      });
+      flushTools();
+      const html = blocks.join('');
 
       // 内容区（v0.0.72）：流式文本写 [data-msg-text] 容器；工具标注插在文本段之间（成熟 agent 交错布局）
       // v0.0.73 修复：只有「AI 且无 message」才是流式空气泡（空文本容器）；用户消息/历史消息直接渲染 html
@@ -2120,6 +2393,11 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
       bubble.appendChild(content);
 
+      // 用量脚注（v0.0.84 主线 B）：AI 历史消息有 usage 时渲染（当前流式在 onStreamEnd 补渲染）
+      if (role === 'ai' && message && message.usage) {
+        bubble.appendChild(renderUsageFooter(message));
+      }
+
       // 底部操作条：左下角分支选择器（候选>1 时显示 ←→ n/m，RikkaHub ChatMessageBranch 式）+ 右下角工具（复制/编辑/重发）
       const actions = document.createElement('div');
       actions.className = 'ex-msg-actions';
@@ -2130,9 +2408,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         actions.style.display = 'none';
       }
 
-      // 分支选择器：查节点链快照，该消息候选数>1 才显示
+      // 分支选择器：查节点链快照，该消息候选数>1 才显示；v0.0.85 只在 user 气泡显示（AI 候选由 user 的 <> 联动切换，避免双入口冲突）
       const snap = message ? controller.getBranchSnapshot().find((n) => n.messageId === message.id) : undefined;
-      if (snap && snap.candidateCount > 1) {
+      if (snap && snap.candidateCount > 1 && role === 'user') {
         const branch = document.createElement('div');
         branch.className = 'ex-msg-branch';
         const prevBtn = document.createElement('button');
@@ -2225,7 +2503,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         const c = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
         if (c) {
           for (const child of Array.from(c.childNodes)) {
-            if (child instanceof HTMLElement && child.classList.contains('ex-msg-tool')) continue; // 工具标注保留
+            // 工具标注/工具卡/思考块保留原样（v0.0.85：思考块内步骤已含参数/结果，不 Markdown 化）
+            if (child instanceof HTMLElement && (child.classList.contains('ex-msg-tool') || child.classList.contains('ex-tool-card') || child.classList.contains('ex-think-block'))) continue;
             const text = child.textContent ?? '';
             if (!text.trim()) continue;
             if (child instanceof HTMLElement) {
@@ -2245,6 +2524,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         // AI 所有信息发完：显示操作按钮（流式中隐藏，v0.0.66 判定）
         const actions = lastAiBubble.querySelector('[data-msg-actions]') as HTMLElement | null;
         if (actions) actions.style.display = '';
+        // v0.0.84（主线 B）：流式结束，最后 AI 消息有 usage → 渲染用量脚注（防重复）
+        const lastMsg = controller.getLastAiMessage();
+        const bubbleEl = lastAiBubble.querySelector('.ex-message') as HTMLElement | null;
+        if (lastMsg?.usage && bubbleEl && !bubbleEl.querySelector('.ex-msg-usage')) {
+          bubbleEl.appendChild(renderUsageFooter(lastMsg));
+        }
       }
     },
     // 流式自动滚动（v0.0.76 成熟 chat 做法）：用户主动上滚 = 停止自动跟随（记录标志）；
@@ -2264,7 +2549,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     },
     // 工作思维流（v0.0.70）：工具调用开始 → 最后 AI 气泡内插状态行"调用工具 X"
     onToolStart: (name, partIndex) => {
-      // v0.0.72：文本段/工具标注交错——固化当前 [data-msg-text] 文本段，插 [调用工具] 标注，开新文本容器
+      // v0.0.85 对齐 RikkaHub：固化当前文本段，工具步骤加入思考块（details.ex-think-block，连续工具复用块），开新文本容器
       if (lastAiBubble && lastAiBubble.isConnected) {
         const content = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
         if (content) {
@@ -2278,18 +2563,40 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           } else if (lastText) {
             lastText.remove();
           }
-          // 插标注
-          const details = document.createElement('details');
-          details.className = 'ex-msg-tool';
-          details.dataset.toolPart = String(partIndex);
-          const summary = document.createElement('summary');
-          summary.textContent = `[调用工具：${name}]`;
-          details.appendChild(summary);
-          const pre = document.createElement('pre');
-          pre.textContent = '执行中...';
-          details.appendChild(pre);
-          content.appendChild(details);
-          // 开新文本容器（后续流式增量进这里 → 标注后）
+          // 思考块：content 末尾是思考块（工具连续）则复用，否则新建
+          const lastChild = content.lastElementChild;
+          let block: HTMLElement | null = lastChild && lastChild.classList.contains('ex-think-block') ? (lastChild as HTMLElement) : null;
+          if (!block) {
+            block = document.createElement('details');
+            block.className = 'ex-think-block';
+            block.setAttribute('open', '');
+            const summary = document.createElement('summary');
+            summary.className = 'ex-think-label';
+            summary.textContent = '工具调用';
+            block.appendChild(summary);
+            content.appendChild(block);
+          }
+          // 步骤行（loading 态；onToolCallDone 回填参数 + ✓，onToolDone 追加结果）
+          const step = document.createElement('div');
+          step.className = 'ex-tool-step';
+          step.dataset.toolPart = String(partIndex);
+          const head = document.createElement('div');
+          head.className = 'ex-tool-step-head';
+          const icon = document.createElement('span');
+          icon.className = 'ex-tool-step-icon run';
+          icon.textContent = '◦';
+          head.appendChild(icon);
+          const nm = document.createElement('span');
+          nm.className = 'ex-tool-step-name';
+          nm.textContent = name;
+          head.appendChild(nm);
+          step.appendChild(head);
+          const loading = document.createElement('div');
+          loading.className = 'ex-tool-loading';
+          loading.textContent = '执行中...';
+          step.appendChild(loading);
+          block.appendChild(step);
+          // 开新文本容器（后续流式增量进这里 → 思考块后）
           const next = document.createElement('div');
           next.setAttribute('data-msg-text', '');
           content.appendChild(next);
@@ -2297,23 +2604,42 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       }
       if (statusEl) statusEl.textContent = `调用工具: ${name}...`;
     },
-    // v0.0.71：工具调用完成——更新对应标注（勾 + 参数）：取最后一条未完成的标注
-    onToolCallDone: (call) => {
-      if (lastAiBubble && lastAiBubble.isConnected) {
-        const all = lastAiBubble.querySelectorAll('details.ex-msg-tool');
-        let target: HTMLElement | null = null;
-        for (let i = all.length - 1; i >= 0; i--) {
-          const s = all[i].querySelector('summary');
-          if (s && !s.textContent?.includes('✓')) {
-            target = all[i] as HTMLElement;
-            break;
+    // v0.0.85：工具调用完成——按 partIndex 精确更新步骤（✓ + 参数），不再按顺序匹配（对齐 RikkaHub toolCallId 定位）
+    onToolCallDone: (call, partIndex) => {
+      if (lastAiBubble && lastAiBubble.isConnected && partIndex != null) {
+        const step = lastAiBubble.querySelector(`.ex-tool-step[data-tool-part="${partIndex}"]`) as HTMLElement | null;
+        if (step) {
+          const nm = step.querySelector('.ex-tool-step-name');
+          if (nm) nm.textContent = call.name;
+          const icon = step.querySelector('.ex-tool-step-icon');
+          if (icon) { icon.className = 'ex-tool-step-icon ok'; icon.textContent = '✓'; }
+          const loading = step.querySelector('.ex-tool-loading');
+          if (loading) {
+            const argsText = call.rawArguments ?? JSON.stringify(call.args ?? {});
+            if (argsText && argsText !== '{}') {
+              const args = document.createElement('pre');
+              args.className = 'ex-tool-args';
+              args.textContent = argsText;
+              loading.replaceWith(args);
+            } else {
+              loading.remove(); // 空参数不显示参数行
+            }
           }
         }
-        if (target) {
-          const summary = target.querySelector('summary');
-          if (summary) summary.textContent = `[调用工具：${call.name} ✓]`;
-          const pre = target.querySelector('pre');
-          if (pre) pre.textContent = call.rawArguments ?? JSON.stringify(call.args ?? {});
+      }
+    },
+    // v0.0.85：工具执行完成——按 partIndex 把结果写进步骤（流式即终态，刷新前后一致，对齐 RikkaHub）
+    onToolDone: ({ name, output }, partIndex) => {
+      if (lastAiBubble && lastAiBubble.isConnected && partIndex != null) {
+        const step = lastAiBubble.querySelector(`.ex-tool-step[data-tool-part="${partIndex}"]`) as HTMLElement | null;
+        if (step) {
+          let out = step.querySelector('pre.ex-tool-out') as HTMLElement | null;
+          if (!out) {
+            out = document.createElement('pre');
+            out.className = 'ex-tool-out';
+            step.appendChild(out);
+          }
+          out.textContent = output;
         }
       }
     },
@@ -2582,10 +2908,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       modelPopList.innerHTML =
         items.length > 0
           ? items
-              .map(
-                (m) =>
-                  `<button type="button" class="ex-model-item${m === cur ? ' active' : ''}" data-ex-model="${esc(m)}">${esc(m)}</button>`,
-              )
+              .map((m) => {
+                const cap = resolveModelCapabilities(m);
+                const tags: string[] = [];
+                if (cap.input.includes('image')) tags.push('视觉');
+                if (cap.abilities.includes('tool')) tags.push('工具');
+                if (cap.abilities.includes('reasoning')) tags.push('推理');
+                const tagHtml = tags.length > 0
+                  ? `<span class="ex-model-tags">${tags.map((t) => `<i class="ex-model-tag">${t}</i>`).join('')}</span>`
+                  : '';
+                return `<button type="button" class="ex-model-item${m === cur ? ' active' : ''}" data-ex-model="${esc(m)}"><span class="ex-model-inner"><span class="ex-model-name">${esc(m)}</span>${tagHtml}</span></button>`;
+              })
               .join('')
           : `<div class="ex-model-empty">${detectedModels === null ? '加载中...（无 Key 则显示预设）' : '没有匹配的模型'}</div>`;
       // 选中当前模型
@@ -3240,6 +3573,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     // ==================== 能力设置独立页交互 ====================
     // 返回按钮：关闭本页
     capabilityBackBtn.addEventListener('click', closeCapability);
+    initSandboxManage();
     // 模式切换：代理/对话（写 config.agent.mode + 高亮 + toast）
     capabilityModal.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest('[data-ex-mode]') as HTMLElement | null;

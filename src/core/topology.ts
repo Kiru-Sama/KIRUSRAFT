@@ -1,11 +1,6 @@
 ﻿/**
  * 内核拓扑服务（v0.0.19）
  * 聚合 Cordis registry + fiber.inject/store，产出"平台中心 + 插件舱段 + 过桥管线"拓扑快照。
- * 空间站语义（v0.0.22 改版，导体模型）：
- *  - 贴靠 = 装载（启用）：卡片拖到中心或其他已装载卡片上 = 装载 + 贴靠它；
- *  - 卡片是导体：中心 + 所有已装载卡片都是导体，沿贴靠链可达中心 = 已装载；
- *  - 禁用 = 与中心无导体链接（拖离），禁用时清除其贴靠关系；
- *  - 贴靠关系由用户拖拽产生并持久化（config.docking），不再由 inject 推断。
  * UI 只消费快照，订阅状态变化失效缓存。
  */
 import { Service, Context } from '@deepseek-ai/cordis';
@@ -27,11 +22,6 @@ export interface TopologyNode {
   stateCode: number;
   /** 依赖的内核服务/插件名（inject 的服务，用于判定停靠与过桥） */
   injectServices: string[];
-  /**
-   * 停靠父节点 id：用户拖拽决定的贴靠目标（'core' 或另一插件）。
-   * 持久化在 config.docking，贴靠链可达中心 = 已装载（导体模型）。
-   */
-  dockParent: string;
   /** 虚拟节点（如平台中心 core）：非真实插件，UI 插件列表应过滤不展示（H2） */
   virtual?: boolean;
 }
@@ -85,8 +75,6 @@ export class TopologyService extends Service {
   private modules = new Map<string, PluginManifest>();
   /** 各插件最后一次挂载配置（重挂时恢复） */
   private lastConfigs = new Map<string, unknown>();
-  /** 贴靠关系缓存：name → dockParent（'core' 或另一插件 id；持久化在 config.docking） */
-  private docking = new Map<string, string>();
 
   constructor(ctx: Context) {
     super(ctx, 'topology');
@@ -106,76 +94,8 @@ export class TopologyService extends Service {
         offPlugin();
       };
     });
-    // 注意：loadDocking 不在此调用——docking 配置分节在 index.ts 中 CoreServices 之后才注册，
-    // 此时 get('docking') 只返回 {}（未注册分节不读 localStorage），启动恢复会丢布局。
-    // 改为首次读写贴靠关系时懒加载（见 ensureDockingLoaded）。
   }
 
-  /** 贴靠关系是否已从持久化加载 */
-  private dockingLoaded = false;
-
-  /** 首次读写贴靠关系前确保已从 config.docking 加载（懒加载，避开分节注册时序问题，S1） */
-  private ensureDockingLoaded(): void {
-    if (this.dockingLoaded) return;
-    this.dockingLoaded = true;
-    try {
-      const stored = this.ctx.config.get('docking') as Record<string, string> | undefined;
-      if (stored && typeof stored === 'object') {
-        this.docking = new Map(Object.entries(stored));
-      }
-    } catch {
-      /* 配置损坏则用默认（全部贴中心） */
-    }
-  }
-
-  /**
-   * 设置插件贴靠目标（拖拽后调用）：写入内存 + 持久化 config.docking。
-   * parent 为 'core' 或另一已装载插件 id。
-   * 返回 false 表示拒绝（形成环），调用方应保持原贴靠不变。
-   */
-  setDockParent(name: string, parent: string): boolean {
-    this.ensureDockingLoaded();
-    if (name === parent) return false;
-    // 环检测（M1）：沿 parent 的贴靠链向上回溯，遇到 name 则拒绝（避免 A→B、B→A 环）
-    let cur = parent;
-    const seen = new Set<string>();
-    while (cur !== 'core') {
-      if (cur === name) return false;
-      if (seen.has(cur)) return false;
-      seen.add(cur);
-      cur = this.docking.get(cur) ?? 'core';
-    }
-    this.docking.set(name, parent);
-    this.persistDocking();
-    this.cache = null;
-    return true;
-  }
-
-  /** 清除插件贴靠关系（禁用时调用，"禁用即不贴靠"） */
-  clearDockParent(name: string): void {
-    this.ensureDockingLoaded();
-    if (this.docking.delete(name)) {
-      this.persistDocking();
-      this.cache = null;
-    }
-  }
-
-  /** 持久化贴靠关系到 config.docking */
-  private persistDocking(): void {
-    try {
-      const obj: Record<string, string> = {};
-      for (const [k, v] of this.docking) obj[k] = v;
-      this.ctx.config.set('docking', obj);
-    } catch {
-      /* 持久化失败不影响本次会话 */
-    }
-  }
-
-  /** 获取插件贴靠目标（无记录默认 'core'） */
-  getDockParent(name: string): string {
-    this.ensureDockingLoaded();
-    return this.docking.get(name) ?? 'core';
-  }
 
   /** 登记可重载插件模块（index.ts bootstrap 时调用；主题 + 全部内置插件，存完整 manifest） */
   registerPlugin(name: string, manifest: PluginManifest): void {
@@ -391,11 +311,7 @@ export class TopologyService extends Service {
     if (hasActive) {
       // 禁用：dispose 所有 fiber（复用 disposePlugin，消除重复实现 P2-3）
       logger.info('topology', `禁用插件 ${name}（fibers=${fibers.length}）`);
-      const allDisposed = await this.disposePlugin(name);
-      // 禁用即不贴靠：全部 fiber 确实 dispose 成功才清贴靠关系（L2：失败时保留，避免状态与运行不一致）
-      if (allDisposed) {
-        this.clearDockParent(name);
-      }
+      await this.disposePlugin(name);
       // GUI 仲裁安全网：禁用的是当前提供界面的 GUI 主题 → 立刻恢复应急控制台，避免白屏。
       // ensureGui 失败会返回 { ok:false }，随 togglePlugin 结果上抛，UI 显示原因（不再静默吞）
       if (ensureGuiAfterDisable && isGuiTheme(this.ctx, name)) {
@@ -492,7 +408,6 @@ export class TopologyService extends Service {
       state: '运行中',
       stateCode: 2,
       injectServices: [],
-      dockParent: 'core',
       virtual: true,
     });
 
@@ -516,7 +431,6 @@ export class TopologyService extends Service {
       const manifest = this.modules.get(name);
       // 主题判定单一来源：只认 manifest.kind（不再用名字前缀猜）
       const isTheme = manifest?.kind === 'ui-theme';
-      const dockParent = this.getDockParent(name);
       nodes.push({
         id: name,
         kind: isTheme ? 'theme' : 'module',
@@ -524,7 +438,6 @@ export class TopologyService extends Service {
         state: STATE_LABEL[stateCode] ?? '未知',
         stateCode,
         injectServices: inject,
-        dockParent,
       });
     }
 
@@ -539,7 +452,6 @@ export class TopologyService extends Service {
       const inject = first?.inject ? Object.keys(first.inject) : [];
       // 匿名插件无 manifest，kind 无法判定：一律按 module 展示（不猜前缀，P2-4）。
       // 登记过的主题插件走 manifest.kind 单一来源（:478）。
-      const dockParent = this.getDockParent(name);
       nodes.push({
         id: name,
         kind: 'module',
@@ -547,7 +459,6 @@ export class TopologyService extends Service {
         state: STATE_LABEL[stateCode] ?? '未知',
         stateCode,
         injectServices: inject,
-        dockParent,
       });
     }
 

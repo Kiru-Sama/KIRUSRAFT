@@ -106,4 +106,31 @@ describe('agent-loop', () => {
     // 单轮 onDone 不应转发给调用方（修复后语义）
     expect(h.onDone).not.toHaveBeenCalled();
   });
+
+  it('thinking 模式工具循环：本轮 reasoning_text 回传到下一轮 input（v0.0.84 修复）', async () => {
+    const seenInputs: Record<string, unknown>[][] = [];
+    const provider = makeProvider(async (req, handlers) => {
+      seenInputs.push(req.input ?? []);
+      if (seenInputs.length === 1) {
+        handlers.onReasoningDelta('我先想想'); // 本轮产生思考内容
+        handlers.onToolCall({ id: 'c1', name: 't', args: { x: 1 } });
+      } else {
+        handlers.onTextDelta('done');
+      }
+    });
+    const tools = {
+      declarations: () => [{ type: 'function', name: 't', description: '', parameters: {} }],
+      execute: async (): Promise<UIMessagePart[]> => [{ type: 'text', text: '结果' }],
+    };
+    const h = makeHandlers();
+    await runAgentLoop({ provider, request: baseRequest, tools, maxSteps: 4 }, h);
+    // 第二轮 input 必须回传 reasoning 独立条目（DeepSeek thinking 模式续写要求）
+    const second = seenInputs[1];
+    const reasoningEntry = second.find((i) => i.type === 'reasoning');
+    expect(reasoningEntry).toBeDefined();
+    const content = (reasoningEntry as { content: { type: string; text: string }[] }).content;
+    expect(content).toEqual([{ type: 'reasoning_text', text: '我先想想' }]);
+    // function_call 仍正常回传
+    expect(second.some((i) => i.type === 'function_call' && i.call_id === 'c1')).toBe(true);
+  });
 });

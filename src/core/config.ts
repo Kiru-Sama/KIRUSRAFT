@@ -60,7 +60,7 @@ export class ConfigService extends Service {
   /** 写配置：与 defaults 合并（防止部分写入丢字段）+ 持久化 + 通知监听者 */
   set(namespace: string, value: Record<string, unknown>): void {
     // P2-10：未注册 namespace 的写入是幽灵键（插件卸载后残留），warn 提示开发期可发现；
-    // 不拒绝——时序上可能存在 set 先于 register（如 docking 懒加载），拒绝会丢数据。
+    // 不拒绝——时序上可能存在 set 先于 register（如某配置分节在运行时才注册），拒绝会丢数据。
     if (!this.sections.has(namespace)) {
       // eslint-disable-next-line no-console
       console.warn(`[config] 写入未注册配置分节 "${namespace}"，可能残留幽灵键`);

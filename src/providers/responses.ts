@@ -215,7 +215,7 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, argCache: Map<str
       // 工作思维流（v0.0.70）：工具条目"开始"——"正在调用工具 X"状态行触发点
       const item = record.item as Record<string, unknown> | undefined;
       if (item && item.type === 'function_call' && typeof item.name === 'string') {
-        handlers.onToolStart?.(item.name);
+        handlers.onToolStart?.(item.name, typeof item.call_id === 'string' ? item.call_id : undefined);
       }
       break;
     }

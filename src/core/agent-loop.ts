@@ -76,6 +76,8 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
 
   for (let step = 0; step < maxSteps; step++) {
     const toolCalls: { id: string; name: string; args: Record<string, unknown>; rawArguments?: string }[] = [];
+    // v0.0.84：累积本轮 reasoning（DeepSeek thinking 模式工具循环必须回传 reasoning_text，否则报错）
+    let stepReasoning = '';
 
     const stepHandlers: ChatStreamHandlers = {
       ...handlers,
@@ -90,6 +92,11 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
       onToolCall: (call) => {
         toolCalls.push(call);
         handlers.onToolCall(call);
+      },
+      // v0.0.84：累积本轮思考内容，工具回传时作为独立 reasoning 条目回传
+      onReasoningDelta: (delta) => {
+        stepReasoning += delta;
+        handlers.onReasoningDelta(delta);
       },
     };
 
@@ -112,6 +119,11 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
     // 执行工具，回传结果（P2-13：可中断——中止后不再执行排队工具，避免 abort 后仍跑完整批）
     for (const call of toolCalls) {
       if (options.signal?.aborted) break;
+      // v0.0.84：回传本轮 reasoning_text（独立顶层条目，跟随第一个 function_call 之前；只回传一次）
+      if (stepReasoning.length > 0) {
+        input.push({ type: 'reasoning', content: [{ type: 'reasoning_text', text: stepReasoning }] });
+        stepReasoning = '';
+      }
       const argumentsStr = call.rawArguments ?? JSON.stringify(call.args);
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: argumentsStr });
       try {
@@ -122,9 +134,12 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
           .map((p) => (p.type === 'text' ? p.text : `[图片: ${p.alt ?? p.imageUrl}]`))
           .join('\n');
         input.push({ type: 'function_call_output', call_id: call.id, output });
+        // v0.0.84（主线 B）：工具输出回传 UI 渲染工具卡结果；v0.0.85 带 callId 供按 id 定位（对齐 RikkaHub）
+        handlers.onToolDone?.({ name: call.name, output, callId: call.id });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         input.push({ type: 'function_call_output', call_id: call.id, output: `工具执行错误: ${message}` });
+        handlers.onToolDone?.({ name: call.name, output: `工具执行错误: ${message}`, callId: call.id });
       }
     }
   }

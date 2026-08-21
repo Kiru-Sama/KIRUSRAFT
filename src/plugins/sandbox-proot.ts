@@ -47,8 +47,7 @@ function genId(): string {
 }
 
 // ---- Capacitor 桥接（WebView → 原生 ProotPlugin） ----
-declare const Capacitor: { isNativePlatform: () => boolean; convertFileSrc: (p: string) => string } | undefined;
-declare const ProotPlugin: {
+interface ProotApi {
   executeCommand(options: { workspaceId: string; command: string; cwd?: string; timeout?: number; stdin?: string }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   createWorkspace(options: { name: string }): Promise<{ id: string }>;
   deleteWorkspace(options: { id: string }): Promise<void>;
@@ -57,11 +56,22 @@ declare const ProotPlugin: {
   readFile(options: { workspaceId: string; path: string }): Promise<{ content: string }>;
   writeFile(options: { workspaceId: string; path: string; content: string }): Promise<void>;
   listFiles(options: { workspaceId: string; path: string }): Promise<{ entries: { name: string; type: 'file' | 'dir'; size: number }[] }>;
-};
+}
+declare const Capacitor: { isNativePlatform: () => boolean; convertFileSrc: (p: string) => string; Plugins?: { ProotPlugin?: ProotApi } } | undefined;
 
 /** 沙箱桥接：封装是否原生平台，非原生环境返回模拟结果 */
 function isNative(): boolean {
   return typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform();
+}
+
+// v0.0.84：Capacitor 插件从 Capacitor.Plugins 获取（裸全局 ProotPlugin 不存在，之前报 undefined）
+function getProot(): ProotApi | undefined {
+  try {
+    if (typeof Capacitor === 'undefined') return undefined;
+    return Capacitor.Plugins?.ProotPlugin;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---- 插件入口 ----
@@ -80,8 +90,11 @@ export function apply(ctx: Context): void {
     async execute(args) {
       const name = String(args.name ?? 'default').replace(/[^A-Za-z0-9._-]/g, '_');
       const ws: Workspace = { id: genId(), name, createdAt: Date.now(), rootfsInstalled: false };
-      if (isNative()) {
-        await ProotPlugin.createWorkspace({ name });
+      const proot = getProot();
+      if (proot) {
+        await proot.createWorkspace({ name });
+      } else if (isNative()) {
+        return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       }
       const list = loadWorkspaces();
       list.push(ws);
@@ -115,7 +128,9 @@ export function apply(ctx: Context): void {
     },
     async execute(args) {
       const id = String(args.workspaceId);
-      if (isNative()) await ProotPlugin.deleteWorkspace({ id });
+      const proot = getProot();
+      if (proot) await proot.deleteWorkspace({ id });
+      else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       const list = loadWorkspaces().filter((w) => w.id !== id);
       saveWorkspaces(list);
       return [{ type: 'text', text: `工作区 ${id} 已删除` }];
@@ -138,10 +153,11 @@ export function apply(ctx: Context): void {
     async execute(args) {
       const id = String(args.workspaceId);
       const url = args.url ? String(args.url) : undefined;
-      if (!isNative()) {
-        return [{ type: 'text', text: '⚠ 非 Android 环境：rootfs 安装仅支持原生平台。\n已标记工作区 rootfs 为已安装（模拟）。' }];
+      const proot = getProot();
+      if (!proot) {
+        return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : '⚠ 非 Android 环境：rootfs 安装仅支持原生平台。\n已标记工作区 rootfs 为已安装（模拟）。' }];
       }
-      await ProotPlugin.installRootfs({ workspaceId: id, url });
+      await proot.installRootfs({ workspaceId: id, url });
       const list = loadWorkspaces().map((w) => w.id === id ? { ...w, rootfsInstalled: true, rootfsUrl: url } : w);
       saveWorkspaces(list);
       return [{ type: 'text', text: `rootfs 安装完成（工作区 ${id}）` }];
@@ -168,12 +184,13 @@ export function apply(ctx: Context): void {
       const cmd = String(args.command);
       const cwd = args.cwd ? String(args.cwd) : '/workspace';
       const timeout = Math.min(Number(args.timeout ?? 30), 600);
-      if (!isNative()) {
-        return [{ type: 'text', text: `[沙箱模拟] 工作区 ${id} 执行命令:\n$ ${cmd}\n（非 Android 环境，命令未实际执行）` }];
+      const proot = getProot();
+      if (!proot) {
+        return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 工作区 ${id} 执行命令:\n$ ${cmd}\n（非 Android 环境，命令未实际执行）` }];
       }
       // 执行前修补 rootfs（RikkaHub 每次命令前都调用 RootfsPatcher）
-      await ProotPlugin.patchRootfs({ workspaceId: id }).catch(() => {});
-      const result = await ProotPlugin.executeCommand({ workspaceId: id, command: cmd, cwd, timeout });
+      await proot.patchRootfs({ workspaceId: id }).catch(() => {});
+      const result = await proot.executeCommand({ workspaceId: id, command: cmd, cwd, timeout });
       const output = result.stdout.trim() || '(无输出)';
       const err = result.stderr.trim();
       return [{ type: 'text', text: output + (err ? `\n--- stderr ---\n${err}` : '') + `\n\n[退出码: ${result.exitCode}]` }];
@@ -195,10 +212,11 @@ export function apply(ctx: Context): void {
     async execute(args) {
       const id = String(args.workspaceId);
       const path = String(args.path);
-      if (!isNative()) {
-        return [{ type: 'text', text: `[沙箱模拟] 读取 ${id}:${path}\n（非 Android 环境）` }];
+      const proot = getProot();
+      if (!proot) {
+        return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 读取 ${id}:${path}\n（非 Android 环境）` }];
       }
-      const result = await ProotPlugin.readFile({ workspaceId: id, path });
+      const result = await proot.readFile({ workspaceId: id, path });
       return [{ type: 'text', text: result.content }];
     },
   });
@@ -220,10 +238,11 @@ export function apply(ctx: Context): void {
       const id = String(args.workspaceId);
       const path = String(args.path);
       const content = String(args.content);
-      if (!isNative()) {
-        return [{ type: 'text', text: `[沙箱模拟] 写入 ${id}:${path} (${content.length} 字节)\n（非 Android 环境）` }];
+      const proot = getProot();
+      if (!proot) {
+        return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 写入 ${id}:${path} (${content.length} 字节)\n（非 Android 环境）` }];
       }
-      await ProotPlugin.writeFile({ workspaceId: id, path, content });
+      await proot.writeFile({ workspaceId: id, path, content });
       return [{ type: 'text', text: `已写入 ${path} (${content.length} 字节)` }];
     },
   });
@@ -242,11 +261,12 @@ export function apply(ctx: Context): void {
     async execute(args) {
       const id = String(args.workspaceId);
       const path = args.path ? String(args.path) : '/workspace';
-      if (!isNative()) {
-        return [{ type: 'text', text: `[沙箱模拟] 列出 ${id}:${path}\n（非 Android 环境）` }];
+      const proot = getProot();
+      if (!proot) {
+        return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 列出 ${id}:${path}\n（非 Android 环境）` }];
       }
-      const result = await ProotPlugin.listFiles({ workspaceId: id, path });
-      const lines = result.entries.map((e) => `${e.type === 'dir' ? '📁' : '📄'} ${e.name}  ${e.type === 'dir' ? '-' : e.size + 'B'}`);
+      const result = await proot.listFiles({ workspaceId: id, path });
+      const lines = result.entries.map((e) => `${e.type === 'dir' ? '[目录]' : '[文件]'} ${e.name}  ${e.type === 'dir' ? '-' : e.size + 'B'}`);
       return [{ type: 'text', text: lines.join('\n') || '(空目录)' }];
     },
   });

@@ -16,7 +16,7 @@ declare module '@deepseek-ai/cordis' {
 export type UIMessagePart =
   | { type: 'text'; text: string }
   | { type: 'image'; imageUrl: string; alt?: string }
-  | { type: 'tool'; name: string; args?: string; result?: string; done?: boolean };
+  | { type: 'tool'; name: string; args?: string; result?: string; done?: boolean; toolCallId?: string };
 
 /** 消息角色 */
 export type MessageRole = 'user' | 'ai';
@@ -31,6 +31,10 @@ export interface Message {
   editedByUser?: boolean;
   /** AI 思考过程（推理文本，v0.0.66）：流式时累积、气泡内展示；不进 AI 上下文（toChatContent 只取 parts） */
   reasoning?: string;
+  /** 本次请求用量（v0.0.84 主线 B）：AI 回复底部脚注；不进 AI 上下文 */
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number; cacheInputTokens?: number };
+  /** 本次请求耗时（秒，v0.0.84 主线 B） */
+  durationSec?: number;
 }
 
 /** 消息节点（RikkaHub MessageNode 对齐版）：会话内一个"位置"，可含多个候选消息（regen/编辑产生），selectIndex 选中当前展示哪个 */
@@ -115,8 +119,10 @@ export interface ChatStreamHandlers {
   onUsage?(usage: { inputTokens: number; outputTokens: number; totalTokens: number; cacheInputTokens?: number }): void;
   /** 可选：联网搜索状态（v0.0.69，APITOOL 同款右上角提示）：searching=模型发起搜索，completed=搜索完成 */
   onWebSearch?(state: 'searching' | 'completed'): void;
-  /** 可选：工具调用开始（v0.0.70 工作思维流）：output_item.added(function_call) / content_block_start(tool_use) 触发，展示"正在调用工具 X" */
-  onToolStart?(name: string): void;
+  /** 可选：工具调用开始（v0.0.70 工作思维流）：output_item.added(function_call) / content_block_start(tool_use) 触发，展示"正在调用工具 X"；callId 为 provider 的工具调用唯一 id（v0.0.85 对齐 RikkaHub ToolCallStart，供 part 按 id 定位） */
+  onToolStart?(name: string, callId?: string): void;
+  /** 可选：工具执行完成（v0.0.84，主线 B）：把工具输出回传 UI 渲染工具卡结果；callId 为工具调用唯一 id（v0.0.85 对齐 RikkaHub，供按 id 定位） */
+  onToolDone?(result: { name: string; output: string; callId?: string }): void;
 }
 
 /** 会话级用量统计（v0.0.65：计费卡数据源，随会话落盘） */

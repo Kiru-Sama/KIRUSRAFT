@@ -12,6 +12,7 @@ import { Context } from '@deepseek-ai/cordis';
 import { runAgentLoop, type ToolExecutor } from './agent-loop';
 import { appendMessage, createMessage, createSession, currentMessages, findNodeByMessage, forkSessionAtMessage, pushCandidate, setSelectIndex, toChatMessages, truncateAfter } from './session';
 import { logger } from './logger';
+import { supportsImage } from '../providers/model-catalog';
 import type { Session, Message, MessageNode, SessionStats, UIMessagePart, ProviderProfile } from './types';
 
 export interface ChatElements {
@@ -43,8 +44,10 @@ export interface ChatElements {
   onWebSearch?: (state: 'searching' | 'completed') => void;
   /** 工具调用开始回调（v0.0.70 工作思维流）：GUI 在聊天气泡内插状态行"调用工具 X"；partIndex 为该工具标注在 AI 消息 parts 中的下标（v0.0.71） */
   onToolStart?: (name: string, partIndex: number) => void;
-  /** 工具调用完成回调（v0.0.71）：参数已填、标注完成，GUI 可刷新该标注为可展开态 */
-  onToolCallDone?: (call: { name: string; args: Record<string, unknown>; rawArguments?: string }) => void;
+  /** 工具调用完成回调（v0.0.71）：参数已填、标注完成，GUI 可刷新该标注为可展开态；partIndex 为工具 part 在消息 parts 中的下标（v0.0.85，供 GUI 精确定位避免多工具串位） */
+  onToolCallDone?: (call: { name: string; args: Record<string, unknown>; rawArguments?: string }, partIndex: number) => void;
+  /** 工具执行完成回调（v0.0.85）：结果已回填数据层，GUI 按 partIndex 把输出写进工具卡（流式即终态，对齐 RikkaHub 单一数据源） */
+  onToolDone?: (result: { name: string; output: string }, partIndex: number) => void;
   /** 流式增量自动滚动（v0.0.72）：GUI 实现"用户未上滚时才跟随到底"（成熟 chat 同款），替代无条件滚底 */
   autoScroll?: () => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
@@ -85,6 +88,8 @@ export interface ChatController {
   forkAt(messageId: string): void;
   /** 节点链分支快照（GUI 渲染 ←→ 计数器 / 轻量总览用） */
   getBranchSnapshot(): { nodeId: string; nodeIndex: number; candidateCount: number; selectIndex: number; messageId: string; role: 'user' | 'ai' }[];
+  /** 获取最后一条 AI 消息（v0.0.84 主线 B：用量脚注用） */
+  getLastAiMessage(): Message | undefined;
   /** 当前会话用量统计（计费卡渲染用） */
   getStats(): SessionStats;
   /** 卸载：中止流并落盘（GUI effect 清理时调用） */
@@ -128,11 +133,13 @@ export interface ChatConfig {
  */
 function buildAgentToolExecutor(ctx: Context, cfg: AgentConfig): ToolExecutor {
   const enabledTools = cfg?.enabledTools ?? {};
+  const needsApproval = (cfg as unknown as { needsApproval?: Record<string, boolean> })?.needsApproval ?? {};
   // 模式判定统一：非 'chat' 即代理（与 UI 高亮一致，避免配置异常时界面显示代理实际无工具）
   const tools =
     cfg?.mode !== 'chat'
       ? ctx.tools.list().filter((t) => enabledTools[t.name] !== false)
       : [];
+  const toolByName = new Map(tools.map((t) => [t.name, t]));
   return {
     declarations: () =>
       tools.map((t) => ({
@@ -141,7 +148,18 @@ function buildAgentToolExecutor(ctx: Context, cfg: AgentConfig): ToolExecutor {
         description: t.description,
         parameters: t.parameters ?? { type: 'object' as const, properties: {} },
       })),
-    execute: (name, args) => ctx.tools.execute(name, args),
+    execute: async (name, args) => {
+      // v0.0.85：审批真生效——用户对工具标记了「审批」（或工具声明需审批）时，AI 调用前弹窗确认
+      const t = toolByName.get(name);
+      const need = needsApproval[name] ?? (t?.needsApproval ?? false);
+      if (need) {
+        const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm(`AI 请求调用工具「${name}」\n${t?.description ?? ''}\n\n是否允许？`)
+          : true;
+        if (!ok) return [{ type: 'text', text: `用户拒绝了工具「${name}」的调用` }];
+      }
+      return ctx.tools.execute(name, args);
+    },
   };
 }
 
@@ -198,23 +216,25 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       });
   }
 
-  /** 工具调用标注（v0.0.71 工作思维流）：往当前流式 AI 消息 parts push tool part，返回 part 下标；无 AI 消息返回 -1 */
-  function pushToolPart(name: string): number {
+  /** 工具调用标注（v0.0.71 工作思维流）：往当前流式 AI 消息 parts push tool part，返回 part 下标；无 AI 消息返回 -1
+   *  v0.0.85：tool part 带 toolCallId（provider 的工具调用唯一 id，对齐 RikkaHub ToolCallStart），后续按 id 精确定位 */
+  function pushToolPart(name: string, callId?: string): number {
     // 找最后一条 AI 消息（流式中通常是最后节点）
     for (let i = session.nodes.length - 1; i >= 0; i--) {
       const n = session.nodes[i];
       const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
       const m = n.messages[idx];
       if (m?.role === 'ai') {
-        m.parts.push({ type: 'tool', name, done: false });
+        m.parts.push({ type: 'tool', name, done: false, toolCallId: callId || undefined });
         return m.parts.length - 1;
       }
     }
     return -1;
   }
 
-  /** 工具调用完成（v0.0.71）：填充最近未完成的 tool part 的 args/result/done */
-  function fillToolPart(call: { name: string; args: Record<string, unknown>; rawArguments?: string }): void {
+  /** 工具调用完成（v0.0.71）：填充最近未完成的 tool part 的 args/done；返回该 part 在消息 parts 中的下标（找不到返回 -1）
+   *  v0.0.85：优先按 call.id === toolCallId 精确定位（对齐 RikkaHub），无 id 时退回 name+最近未完成（多工具不串位） */
+  function fillToolPart(call: { id?: string; name: string; args: Record<string, unknown>; rawArguments?: string }): number {
     for (let i = session.nodes.length - 1; i >= 0; i--) {
       const n = session.nodes[i];
       const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
@@ -222,13 +242,37 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       if (!m) continue;
       for (let j = m.parts.length - 1; j >= 0; j--) {
         const p = m.parts[j];
-        if (p.type === 'tool' && !p.done && p.name === call.name) {
+        const idMatch = call.id != null && p.type === 'tool' && p.toolCallId === call.id && !p.done;
+        const nameMatch = call.id == null && p.type === 'tool' && !p.done && p.name === call.name;
+        if (idMatch || nameMatch) {
           p.args = call.rawArguments ?? JSON.stringify(call.args ?? {});
           p.done = true;
-          return;
+          return j;
         }
       }
     }
+    return -1;
+  }
+
+  /** 工具执行完成（v0.0.84，主线 B）：填充最近 tool part 的 result（工具输出，供工具卡渲染）；返回该 part 下标（找不到返回 -1）
+   *  v0.0.85：优先按 callId === toolCallId 精确定位（对齐 RikkaHub），无 id 时退回 name+最近完成 */
+  function fillToolResult(name: string, output: string, callId?: string): number {
+    for (let i = session.nodes.length - 1; i >= 0; i--) {
+      const n = session.nodes[i];
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      const m = n.messages[idx];
+      if (!m) continue;
+      for (let j = m.parts.length - 1; j >= 0; j--) {
+        const p = m.parts[j];
+        const idMatch = callId != null && p.type === 'tool' && p.toolCallId === callId && p.done;
+        const nameMatch = callId == null && p.type === 'tool' && p.name === name && p.done;
+        if (idMatch || nameMatch) {
+          p.result = output;
+          return j;
+        }
+      }
+    }
+    return -1;
   }
 
   /** 累计一次请求的 usage 到会话统计（v0.0.65 计费卡数据源；v0.0.67 加缓存命中） */
@@ -381,7 +425,18 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     if (!validateStream()) return false;
     // 有文本（非空白）或图片部件即可发送（图片=纯图片消息）
     const hasContent = parts.some((p) => p.type === 'image' || (p.type === 'text' && p.text.trim().length > 0));
-    return hasContent;
+    if (!hasContent) return false;
+    // v0.0.84：图片能力校验——当前模型不支持图片时拦截并提示切换（DeepSeek 视觉模型需选支持图片的模型）
+    if (parts.some((p) => p.type === 'image')) {
+      const currentProfile = ctx.config.get('profile') as unknown as ProviderProfile;
+      const model = currentProfile.model ?? '';
+      if (!supportsImage(model)) {
+        els.status.textContent = `当前模型 ${model} 不支持图片，请切换到支持图片的模型`;
+        logger.warn('gui', `发送被拦截：模型 ${model} 不支持图片`);
+        return false;
+      }
+    }
+    return true;
   }
 
   /** 流式校验（不含内容检查）：重发/回复流不追加用户输入，只查状态/配置/长度。P1-1 同源 */
@@ -440,6 +495,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     lengthConfirmed = false;
 
     streaming = true;
+    const startTime = Date.now(); // v0.0.84（主线 B）：用量脚注耗时起点
     const token = ++streamToken;
     // 校验已全部通过、开始流式：通知 GUI 清空待发送附件（失败路径不会到这里，附件保留可重发）
     els.onSendAccepted?.();
@@ -502,9 +558,13 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
               appendMessage(session, 'ai', aiParts); // 追加 AI 节点（单候选）
               aiAppended = true;
             }
-            const part = aiParts[0];
-            if (part.type === 'text') part.text += delta;
-            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
+            // v0.0.85（Bug1）：末尾非 text 则新开 text part（RikkaHub 数据层交错）——
+            // 工具卡插在对应文本段之间而非全挤到末尾；DOM 侧 onToolStart 已固化旧段并开新容器
+            const last = aiParts[aiParts.length - 1];
+            if (last.type === 'text') last.text += delta;
+            else aiParts.push({ type: 'text', text: delta });
+            const cur = aiParts[aiParts.length - 1];
+            setMessageContent(aiBubble, cur.type === 'text' ? cur.text : '');
             els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
@@ -526,11 +586,24 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
-            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
-            els.onToolCallDone?.(call);
+            const partIndex = fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done；v0.0.85 返回 part 下标供 GUI 精确定位
+            els.onToolCallDone?.(call, partIndex);
+          },
+          onToolDone: ({ name, output, callId }) => {
+            const partIndex = fillToolResult(name, output, callId); // v0.0.85：按 toolCallId 精确定位，返回 part 下标供 GUI 回填工具卡结果
+            els.onToolDone?.({ name, output }, partIndex);
           },
           onDone: () => {
             els.status.textContent = '';
+            // v0.0.84（主线 B）：本次请求 usage + 耗时写到最后 AI 消息（用量脚注）
+            if (reqInput > 0 || reqOutput > 0) {
+              const lastNode = session.nodes[session.nodes.length - 1];
+              const aiMsg = lastNode?.messages[lastNode?.selectIndex ?? 0];
+              if (aiMsg) {
+                aiMsg.usage = { inputTokens: reqInput, outputTokens: reqOutput, totalTokens: reqInput + reqOutput, cacheInputTokens: reqCache || undefined };
+                aiMsg.durationSec = (Date.now() - startTime) / 1000;
+              }
+            }
           },
           onError: (error) => {
             // 首个文本增量前报错：移除空白气泡（未落盘、session 无记录），避免残留（P2-6）
@@ -549,9 +622,17 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
-          onToolStart: (name) => {
+          onToolStart: (name, callId) => {
             // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
-            const partIndex = pushToolPart(name);
+            // v0.0.85（Bug1）：首个事件即工具（aiAppended 未置 true）时先落盘再 push，
+            // 否则 pushToolPart 反向找不到 AI 消息、工具 part 丢失
+            if (!aiAppended) {
+              // 工具前无文本：移除未填充的空 text part，避免渲染出空段
+              if (aiParts.length === 1 && aiParts[0].type === 'text' && aiParts[0].text === '') aiParts.pop();
+              appendMessage(session, 'ai', aiParts);
+              aiAppended = true;
+            }
+            const partIndex = pushToolPart(name, callId);
             els.onToolStart?.(name, partIndex);
           },
         },
@@ -635,14 +716,12 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       }
     }
     if (aiNodeIndex < 0 || !aiMsg) return;
-    // 以现有文本为起点续写（v0.0.77 修复丢内容）：合并所有 text part 为续写起点，
-    // 不能因首 part 非 text 而重置为空（那会丢掉中止前已生成的内容）
+    // 以现有文本为起点续写（v0.0.77 修复丢内容）：保留工具 part 交错位置，仅确保末尾是 text part
+    // v0.0.85：原实现（首 part 非 text 时合并所有 text part）会丢工具 part，改为末尾非 text 时追加空段
     let aiParts = aiMsg.parts;
-    if (aiParts.length === 0 || aiParts[0].type !== 'text') {
-      const existingText = aiMsg.parts.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-        .map((p) => p.text)
-        .join('\n');
-      aiParts = [{ type: 'text', text: existingText }];
+    const lastPart = aiParts[aiParts.length - 1];
+    if (lastPart?.type !== 'text') {
+      aiParts = [...aiParts, { type: 'text', text: '' }];
       aiMsg.parts = aiParts;
     }
     void streamReplyAt(aiNodeIndex, aiParts, true);
@@ -736,7 +815,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     }
   }
 
-  /** 编辑用户消息（APITOOL editMsg 原创语义）：push 新候选（新文本）+ 截断该节点后续 + 重新生成回复 */
+  /** 编辑用户消息（APITOOL editMsg 原创语义）：push 新候选（新文本）+ 保留旧 AI 回复为候选 + 重新生成回复
+   *  v0.0.85：不再 truncateAfter 删旧 AI 节点——旧 AI 回复保留为候选 0，新生成回复 push 为候选 1，
+   *  user 候选与 AI 候选一一对应（切 user 候选时 AI 联动切换，修复分支切换语义） */
   function editUserMessage(messageId: string, newText: string): void {
     if (disposed || streaming) {
       // APITOOL：流式期间编辑会被渲染覆盖——拦截
@@ -752,11 +833,32 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     const newMsg = createMessage('user', [{ type: 'text', text }]);
     newMsg.createdAt = node.messages[0]?.createdAt ?? newMsg.createdAt;
     pushCandidate(session, nodeIndex, newMsg);
-    // 截断该节点之后的所有节点（编辑后重生成回复；RikkaHub user 编辑=截断语义）
-    truncateAfter(session, nodeIndex);
-    saveSessionSafe();
-    renderCurrent();
-    void streamReply(); // 从链尾 append 新 AI 节点重新生成回复
+    // 找该 user 节点之后最近的 AI 回复节点（链尾 AI）：旧回复作为候选 0，新回复 push 为候选 1
+    let aiNodeIndex = -1;
+    for (let i = session.nodes.length - 1; i > nodeIndex; i--) {
+      const n = session.nodes[i];
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      if (n.messages[idx]?.role === 'ai') {
+        aiNodeIndex = i;
+        break;
+      }
+    }
+    if (aiNodeIndex >= 0) {
+      const aiParts: UIMessagePart[] = [{ type: 'text', text: '' }];
+      pushCandidate(session, aiNodeIndex, createMessage('ai', aiParts));
+      // 删 AI 节点之后的更后节点（截断语义；AI 节点本身保留，其候选也保留）
+      truncateAfter(session, aiNodeIndex);
+      saveSessionSafe();
+      renderCurrent();
+      // continueMode：复用 renderCurrent 刚渲染的候选气泡，不重复 append（避免双气泡）
+      void streamReplyAt(aiNodeIndex, aiParts, true);
+    } else {
+      // 无旧 AI 回复：截断该节点之后（原逻辑），重新生成
+      truncateAfter(session, nodeIndex);
+      saveSessionSafe();
+      renderCurrent();
+      void streamReply();
+    }
   }
 
   /** 就地编辑 AI 回复（APITOOL editAiMsg 原创语义）：剥思考块给正文编辑、改选中候选文本、标 editedByUser（不重发）；
@@ -804,6 +906,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   async function streamReply(): Promise<void> {
     if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
     streaming = true;
+    const startTime = Date.now(); // v0.0.84（主线 B）：用量脚注耗时起点
     const token = ++streamToken;
     els.onSendAccepted?.();
     let reqInput = 0;
@@ -847,9 +950,13 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
               appendMessage(session, 'ai', aiParts);
               aiAppended = true;
             }
-            const part = aiParts[0];
-            if (part.type === 'text') part.text += delta;
-            setMessageContent(aiBubble, part.type === 'text' ? part.text : '');
+            // v0.0.85（Bug1）：末尾非 text 则新开 text part（RikkaHub 数据层交错）——
+            // 工具卡插在对应文本段之间而非全挤到末尾；DOM 侧 onToolStart 已固化旧段并开新容器
+            const last = aiParts[aiParts.length - 1];
+            if (last.type === 'text') last.text += delta;
+            else aiParts.push({ type: 'text', text: delta });
+            const cur = aiParts[aiParts.length - 1];
+            setMessageContent(aiBubble, cur.type === 'text' ? cur.text : '');
             els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
@@ -871,11 +978,24 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
-            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
-            els.onToolCallDone?.(call);
+            const partIndex = fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done；v0.0.85 返回 part 下标供 GUI 精确定位
+            els.onToolCallDone?.(call, partIndex);
+          },
+          onToolDone: ({ name, output, callId }) => {
+            const partIndex = fillToolResult(name, output, callId); // v0.0.85：按 toolCallId 精确定位，返回 part 下标供 GUI 回填工具卡结果
+            els.onToolDone?.({ name, output }, partIndex);
           },
           onDone: () => {
             els.status.textContent = '';
+            // v0.0.84（主线 B）：本次请求 usage + 耗时写到最后 AI 消息（用量脚注）
+            if (reqInput > 0 || reqOutput > 0) {
+              const lastNode = session.nodes[session.nodes.length - 1];
+              const aiMsg = lastNode?.messages[lastNode?.selectIndex ?? 0];
+              if (aiMsg) {
+                aiMsg.usage = { inputTokens: reqInput, outputTokens: reqOutput, totalTokens: reqInput + reqOutput, cacheInputTokens: reqCache || undefined };
+                aiMsg.durationSec = (Date.now() - startTime) / 1000;
+              }
+            }
           },
           onError: (error) => {
             if (!aiAppended) {
@@ -893,9 +1013,17 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
-          onToolStart: (name) => {
+          onToolStart: (name, callId) => {
             // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
-            const partIndex = pushToolPart(name);
+            // v0.0.85（Bug1）：首个事件即工具（aiAppended 未置 true）时先落盘再 push，
+            // 否则 pushToolPart 反向找不到 AI 消息、工具 part 丢失
+            if (!aiAppended) {
+              // 工具前无文本：移除未填充的空 text part，避免渲染出空段
+              if (aiParts.length === 1 && aiParts[0].type === 'text' && aiParts[0].text === '') aiParts.pop();
+              appendMessage(session, 'ai', aiParts);
+              aiAppended = true;
+            }
+            const partIndex = pushToolPart(name, callId);
             els.onToolStart?.(name, partIndex);
           },
         },
@@ -921,6 +1049,7 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   async function streamReplyAt(nodeIndex: number, aiParts: UIMessagePart[], continueMode = false): Promise<void> {
     if (!validateStream()) return; // 回复流不追加用户输入，只校验状态/配置
     streaming = true;
+    const startTime = Date.now(); // v0.0.84（主线 B）：用量脚注耗时起点
     const token = ++streamToken;
     els.onSendAccepted?.();
     let reqInput = 0;
@@ -964,10 +1093,13 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
         },
         {
           onTextDelta: (delta) => {
-            const part = aiParts[0];
-            if (part.type === 'text') part.text += delta;
+            // v0.0.85（Bug1）：末尾非 text 则新开 text part（RikkaHub 数据层交错）
+            const last = aiParts[aiParts.length - 1];
+            if (last.type === 'text') last.text += delta;
+            else aiParts.push({ type: 'text', text: delta });
+            const cur = aiParts[aiParts.length - 1];
             // v0.0.75：续写模式 append 增量到原气泡（不重复已有文本），普通模式全量写
-            setMessageContent(aiBubble, part.type === 'text' ? (continueMode ? delta : part.text) : '', continueMode);
+            setMessageContent(aiBubble, cur.type === 'text' ? (continueMode ? delta : cur.text) : '', continueMode);
             els.autoScroll?.(); // v0.0.72：用户未上滚才跟随到底（成熟 chat 同款）
             els.status.textContent = '生成中...';
           },
@@ -990,11 +1122,24 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
-            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
-            els.onToolCallDone?.(call);
+            const partIndex = fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done；v0.0.85 返回 part 下标供 GUI 精确定位
+            els.onToolCallDone?.(call, partIndex);
+          },
+          onToolDone: ({ name, output, callId }) => {
+            const partIndex = fillToolResult(name, output, callId); // v0.0.85：按 toolCallId 精确定位，返回 part 下标供 GUI 回填工具卡结果
+            els.onToolDone?.({ name, output }, partIndex);
           },
           onDone: () => {
             els.status.textContent = '';
+            // v0.0.84（主线 B）：本次请求 usage + 耗时写到最后 AI 消息（用量脚注）
+            if (reqInput > 0 || reqOutput > 0) {
+              const lastNode = session.nodes[session.nodes.length - 1];
+              const aiMsg = lastNode?.messages[lastNode?.selectIndex ?? 0];
+              if (aiMsg) {
+                aiMsg.usage = { inputTokens: reqInput, outputTokens: reqOutput, totalTokens: reqInput + reqOutput, cacheInputTokens: reqCache || undefined };
+                aiMsg.durationSec = (Date.now() - startTime) / 1000;
+              }
+            }
           },
           onError: (error) => {
             // 候选气泡流式期间失败：保留候选（用户可切回旧候选），仅提示
@@ -1010,9 +1155,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onWebSearch: (state) => {
             els.onWebSearch?.(state);
           },
-          onToolStart: (name) => {
+          onToolStart: (name, callId) => {
             // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
-            const partIndex = pushToolPart(name);
+            const partIndex = pushToolPart(name, callId);
             els.onToolStart?.(name, partIndex);
           },
         },
@@ -1032,11 +1177,31 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     }
   }
 
-  /** 切换分支：只改目标节点 selectIndex，后续节点链不动（RikkaHub selectMessageNode 共享链语义） */
+  /** 切换分支：只改目标节点 selectIndex，后续节点链不动（RikkaHub selectMessageNode 共享链语义）
+   *  v0.0.85：user 节点候选 ↔ 其后续 AI 回复候选联动（编辑重发产生成对候选：user 候选 i ↔ AI 候选 i） */
   function selectCandidate(nodeId: string, selectIndex: number): void {
+    if (disposed) return;
+    if (streaming) {
+      // v0.0.85：流式中禁止切分支（renderCurrent 重建会与流式 DOM 冲突导致工具卡重复/错位），显式提示避免静默无反应
+      els.status.textContent = '生成中，暂不能切换分支';
+      return;
+    }
     const ni = session.nodes.findIndex((n) => n.id === nodeId);
     if (ni < 0) return;
     setSelectIndex(session, ni, selectIndex);
+    // user 候选 ↔ AI 回复候选联动：切 user 候选时同步最近的后续 AI 节点 selectIndex（同下标）
+    const node = session.nodes[ni];
+    const idx = node.selectIndex >= 0 && node.selectIndex < node.messages.length ? node.selectIndex : 0;
+    if (node.messages[idx]?.role === 'user') {
+      for (let j = ni + 1; j < session.nodes.length; j++) {
+        const n = session.nodes[j];
+        const jdx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+        if (n.messages[jdx]?.role === 'ai') {
+          setSelectIndex(session, j, Math.min(selectIndex, n.messages.length - 1));
+          break;
+        }
+      }
+    }
     saveSessionSafe();
     renderCurrent();
   }
@@ -1086,6 +1251,15 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
     selectCandidate,
     forkAt,
     getBranchSnapshot,
+    getLastAiMessage: () => {
+      for (let i = session.nodes.length - 1; i >= 0; i--) {
+        const n = session.nodes[i];
+        const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+        const m = n.messages[idx];
+        if (m?.role === 'ai') return m;
+      }
+      return undefined;
+    },
     getStats,
     dispose,
   };

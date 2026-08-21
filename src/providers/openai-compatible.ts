@@ -249,7 +249,7 @@ function dispatch(data: unknown, handlers: ChatStreamHandlers, toolArgs: Map<str
         // 首个带 name 的 chunk：记录元信息（后续纯参数分片 name 为空，不重复触发）
         toolMeta.set(idx, { id, name });
         // 工作思维流（v0.0.70）：工具调用开始——"正在调用工具 X"
-        handlers.onToolStart?.(name);
+        handlers.onToolStart?.(name, id);
       }
     }
   }
