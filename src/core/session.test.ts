@@ -170,6 +170,19 @@ describe('session 节点链会话状态机（v0.0.65 RikkaHub 消息树）', () 
     ]);
   });
 
+  it('toChatMessages 工具标注 part 不进 AI 上下文（v0.0.71 工作思维流）', () => {
+    const s = createSession();
+    appendMessage(s, 'user', [{ type: 'text', text: '搜热点' }]);
+    appendMessage(s, 'ai', [
+      { type: 'text', text: '好的我来搜索' },
+      { type: 'tool', name: 'search_web', args: '{"q":"热点"}', done: true },
+      { type: 'text', text: '这是结果' },
+    ]);
+    const msgs = toChatMessages(s);
+    // AI 消息 content = 纯文本（tool 标注被过滤），且文本顺序保留
+    expect(msgs[1].content).toBe('好的我来搜索\n这是结果');
+  });
+
   it('toChatMessages maxRounds 按轮截断历史', () => {
     const s = createSession();
     appendMessage(s, 'user', [{ type: 'text', text: '第一问' }]);

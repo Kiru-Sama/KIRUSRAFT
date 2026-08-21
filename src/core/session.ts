@@ -133,9 +133,12 @@ export function toChatMessages(session: Session, maxRounds = 0): { role: string;
   return messages;
 }
 
-/** UIMessagePart[] → ChatMessageContent（纯文本保持字符串；含图片时用部件数组） */
+/** UIMessagePart[] → ChatMessageContent（纯文本保持字符串；含图片时用部件数组）。
+ *  tool 标注（v0.0.71）不进 AI 上下文——过滤掉（工作思维流仅 UI 展示） */
 export function toChatContent(parts: UIMessagePart[]): ChatMessageContent {
-  const nonEmpty = parts.filter((p) => (p.type === 'text' ? p.text.length > 0 : true));
+  const nonEmpty = parts.filter((p): p is Exclude<UIMessagePart, { type: 'tool' }> =>
+    p.type !== 'tool' && (p.type === 'text' ? p.text.length > 0 : true),
+  );
   if (nonEmpty.every((p) => p.type === 'text')) {
     return nonEmpty.map((p) => (p.type === 'text' ? p.text : '')).join('\n');
   }

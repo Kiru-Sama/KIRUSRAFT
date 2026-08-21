@@ -11,10 +11,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** 消息部件：模型回传与 UI 渲染共用（Text/Image 双用途） */
+/** 消息部件：模型回传与 UI 渲染共用（Text/Image/工具标注）
+ *  tool：工具调用标注（v0.0.71 工作思维流）——渲染为 [调用工具：xxx] 可展开行（看参数/结果）；不进 AI 上下文 */
 export type UIMessagePart =
   | { type: 'text'; text: string }
-  | { type: 'image'; imageUrl: string; alt?: string };
+  | { type: 'image'; imageUrl: string; alt?: string }
+  | { type: 'tool'; name: string; args?: string; result?: string; done?: boolean };
 
 /** 消息角色 */
 export type MessageRole = 'user' | 'ai';

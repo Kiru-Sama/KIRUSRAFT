@@ -237,6 +237,11 @@ const STYLE = `
 .ex-msg-flow { margin-bottom:8px; display:flex; flex-direction:column; gap:2px; }
 .ex-msg-flow-line { font-size:10px; color:var(--ex-text3); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:0.5px; }
 .ex-msg-flow-line::before { content:'▸ '; color:var(--ex-accent2); }
+/* 工具调用标注（v0.0.71）：行内 [调用工具：xxx]，可展开看参数（成熟 agent 风格） */
+.ex-msg-tool { margin:6px 0; font-size:11px; color:var(--ex-text2); }
+.ex-msg-tool summary { cursor:pointer; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--ex-accent); user-select:none; }
+.ex-msg-tool summary:hover { color:var(--ex-accent2); }
+.ex-msg-tool pre { margin:4px 0 0; padding:6px 8px; background:var(--ex-bg2); border-left:2px solid var(--ex-border2); font-size:10px; overflow-x:auto; white-space:pre-wrap; word-break:break-word; }
 /* ---- 消息 Markdown 渲染（仅白名单标签，文本已 esc 全量转义） ---- */
 .ex-msg-content > :first-child { margin-top:0; }
 .ex-msg-content > :last-child { margin-bottom:0; }
@@ -263,7 +268,8 @@ const STYLE = `
 .ex-empty-sub { font-size:12px; color:var(--ex-text2); line-height:1.7; }
 .ex-empty-hint { font-size:10px; color:var(--ex-text3); letter-spacing:1px; }
 .ex-empty-start { pointer-events:auto; max-width:220px; }
-.ex-status { padding:6px 16px 4px; font-size:11px; color:var(--ex-text2); min-height:20px; text-align:center; position:relative; z-index:1; }
+/* 状态行（v0.0.71：移入输入区顶部，灰色小字，不占消息区与输入区间隙） */
+.ex-status { padding:0 2px 4px; font-size:10px; color:var(--ex-text3); min-height:0; text-align:left; }
 /* ---- 输入区（Rikka ChatInput 复刻：圆角0 + 1px 半透明描边 + 半透明 surface + blur；内部工具行 + 输入框） ---- */
 .ex-input-area { margin:8px 12px; padding:8px 10px; padding-bottom:calc(8px + env(safe-area-inset-bottom,0px)); background:var(--ex-surface); border:1px solid var(--ex-border); box-shadow:var(--ex-shadow); z-index:5; display:flex; flex-direction:column; gap:8px; }
 /* 工具行：左滚动区（模型/深思/搜索/上传）+ 右固定发送 */
@@ -650,9 +656,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             <div class="ex-empty-hint">KIRUSRAFT × EXDARK</div>
           </div>
         </div>
-        <div class="ex-status" data-ex="status"></div>
-        <!-- 输入区（Rikka ChatInput：容器 + 输入框在上 + 工具行在下） -->
+        <!-- 输入区（Rikka ChatInput：容器 + 状态行 + 输入框 + 工具行；v0.0.71 状态行移入输入区顶部，不再夹消息区与输入区间隙） -->
         <div class="ex-input-area">
+          <div class="ex-status" data-ex="status"></div>
           <div class="ex-input-box">
             <textarea data-ex="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
             <span class="ex-char-count" data-ex="charcount"></span>
@@ -2024,13 +2030,17 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           bubble.appendChild(reasonEl);
         }
       }
-      // 多模态渲染：文本→Markdown，图片→img（dataURL 直接显示；参考 RikkaHub UIMessagePart.Image）
+      // 多模态渲染：文本→Markdown，图片→img，工具标注→可展开行 [调用工具：xxx]（v0.0.71，成熟 agent 风格）
       const html = parts
-        .map((p) =>
-          p.type === 'text'
-            ? (p.text ? renderMarkdown(p.text) : '')
-            : `<img class="ex-msg-img" src="${esc(p.imageUrl)}" alt="${esc(p.alt ?? '图片')}" />`,
-        )
+        .map((p) => {
+          if (p.type === 'text') return p.text ? renderMarkdown(p.text) : '';
+          if (p.type === 'image') return `<img class="ex-msg-img" src="${esc(p.imageUrl)}" alt="${esc(p.alt ?? '图片')}" />`;
+          if (p.type === 'tool') {
+            // 工具标注：可折叠，展开看参数（成熟 agent 的 tool call 卡片）
+            return `<details class="ex-msg-tool"><summary>[调用工具：${esc(p.name)}${p.done ? ' ✓' : ''}]</summary><pre>${esc(p.args ?? '执行中...')}</pre></details>`;
+          }
+          return '';
+        })
         .join('');
 
       // 内容区：完整消息直接渲染 Markdown/图片；流式空气泡等 onStreamEnd 收尾再渲染
@@ -2127,8 +2137,18 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     },
     onStreamEnd: () => {
       if (lastAiBubble && lastAiBubble.isConnected) {
+        // v0.0.71：文本 Markdown 收尾，但保留流式中插入的 [调用工具] 标注节点（不覆盖）
         const c = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
-        if (c) c.innerHTML = c.textContent ? renderMarkdown(c.textContent) : '';
+        if (c) {
+          const textOnly = Array.from(c.childNodes)
+            .filter((n) => !(n instanceof HTMLElement && n.classList.contains('ex-msg-tool')))
+            .map((n) => n.textContent ?? '')
+            .join('');
+          // 重建：文本部分 Markdown 化 + 保留 tool 标注节点
+          const tools = Array.from(c.querySelectorAll('details.ex-msg-tool'));
+          c.innerHTML = textOnly ? renderMarkdown(textOnly) : '';
+          for (const t of tools) c.appendChild(t);
+        }
         // v0.0.67：流式结束仍无思考内容 → 移除空推理区（不思考就不显示）
         const rEl = lastAiBubble.querySelector('[data-msg-reasoning]') as HTMLElement | null;
         if (rEl && !rEl.textContent?.trim()) {
@@ -2149,25 +2169,45 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       showToast(state === 'searching' ? '联网搜索中...' : '搜索完成');
     },
     // 工作思维流（v0.0.70）：工具调用开始 → 最后 AI 气泡内插状态行"调用工具 X"
-    onToolStart: (name) => {
+    onToolStart: (name, partIndex) => {
+      // v0.0.71：行内工具标注——往最后 AI 气泡的内容区按顺序插入 [调用工具：xxx] 可展开行
+      // （数据层 tool part 已由 controller push 进消息 parts；这里同步渲染 DOM，不打断流式）
       if (lastAiBubble && lastAiBubble.isConnected) {
-        let flow = lastAiBubble.querySelector('[data-msg-flow]') as HTMLElement | null;
-        if (!flow) {
-          flow = document.createElement('div');
-          flow.className = 'ex-msg-flow';
-          flow.setAttribute('data-msg-flow', '');
-          const reason = lastAiBubble.querySelector('[data-msg-reasoning]');
-          const content = lastAiBubble.querySelector('[data-msg-content]');
-          if (reason && reason.parentElement) reason.parentElement.insertBefore(flow, reason.nextSibling);
-          else if (content && content.parentElement) content.parentElement.insertBefore(flow, content);
-          else lastAiBubble.appendChild(flow);
-        }
-        const line = document.createElement('div');
-        line.className = 'ex-msg-flow-line';
-        line.textContent = `调用工具: ${name}`;
-        flow.appendChild(line);
+        const content = lastAiBubble.querySelector('[data-msg-content]') as HTMLElement | null;
+        const wrap = content ?? lastAiBubble;
+        const details = document.createElement('details');
+        details.className = 'ex-msg-tool';
+        details.dataset.toolPart = String(partIndex);
+        const summary = document.createElement('summary');
+        summary.textContent = `[调用工具：${name}]`;
+        details.appendChild(summary);
+        const pre = document.createElement('pre');
+        pre.textContent = '执行中...';
+        details.appendChild(pre);
+        // 追加到内容区末尾（与文本同流顺序）
+        wrap.appendChild(details);
       }
       if (statusEl) statusEl.textContent = `调用工具: ${name}...`;
+    },
+    // v0.0.71：工具调用完成——更新对应标注（勾 + 参数）：取最后一条未完成的标注
+    onToolCallDone: (call) => {
+      if (lastAiBubble && lastAiBubble.isConnected) {
+        const all = lastAiBubble.querySelectorAll('details.ex-msg-tool');
+        let target: HTMLElement | null = null;
+        for (let i = all.length - 1; i >= 0; i--) {
+          const s = all[i].querySelector('summary');
+          if (s && !s.textContent?.includes('✓')) {
+            target = all[i] as HTMLElement;
+            break;
+          }
+        }
+        if (target) {
+          const summary = target.querySelector('summary');
+          if (summary) summary.textContent = `[调用工具：${call.name} ✓]`;
+          const pre = target.querySelector('pre');
+          if (pre) pre.textContent = call.rawArguments ?? JSON.stringify(call.args ?? {});
+        }
+      }
     },
   });
 

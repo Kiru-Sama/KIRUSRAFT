@@ -89,7 +89,11 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: argumentsStr });
       try {
         const parts = await options.tools.execute(call.name, call.args);
-        const output = parts.map((p) => (p.type === 'text' ? p.text : `[图片: ${p.alt ?? p.imageUrl}]`)).join('\n');
+        // v0.0.71：tool 标注 part 不回传（仅 UI 展示），text/image 转文本
+        const output = parts
+          .filter((p): p is Extract<UIMessagePart, { type: 'text' | 'image' }> => p.type === 'text' || p.type === 'image')
+          .map((p) => (p.type === 'text' ? p.text : `[图片: ${p.alt ?? p.imageUrl}]`))
+          .join('\n');
         input.push({ type: 'function_call_output', call_id: call.id, output });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

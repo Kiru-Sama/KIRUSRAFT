@@ -41,8 +41,10 @@ export interface ChatElements {
   onSendAccepted?: () => void;
   /** 联网搜索状态回调（v0.0.69）：GUI 右上角提示"联网搜索中/搜索完成"（APITOOL 同款） */
   onWebSearch?: (state: 'searching' | 'completed') => void;
-  /** 工具调用开始回调（v0.0.70 工作思维流）：GUI 在聊天气泡内插状态行"调用工具 X" */
-  onToolStart?: (name: string) => void;
+  /** 工具调用开始回调（v0.0.70 工作思维流）：GUI 在聊天气泡内插状态行"调用工具 X"；partIndex 为该工具标注在 AI 消息 parts 中的下标（v0.0.71） */
+  onToolStart?: (name: string, partIndex: number) => void;
+  /** 工具调用完成回调（v0.0.71）：参数已填、标注完成，GUI 可刷新该标注为可展开态 */
+  onToolCallDone?: (call: { name: string; args: Record<string, unknown>; rawArguments?: string }) => void;
   /** 对话超长拦截（超 100k 时触发）：GUI 弹右上角确认；点确定时调用传入的 confirm 回调放行发送。返回 void */
   onLengthWarn?: (count: number, confirm: () => void) => void;
 }
@@ -192,6 +194,39 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       .catch((error) => {
         logger.error('storage', `保存会话失败: ${String(error)}`);
       });
+  }
+
+  /** 工具调用标注（v0.0.71 工作思维流）：往当前流式 AI 消息 parts push tool part，返回 part 下标；无 AI 消息返回 -1 */
+  function pushToolPart(name: string): number {
+    // 找最后一条 AI 消息（流式中通常是最后节点）
+    for (let i = session.nodes.length - 1; i >= 0; i--) {
+      const n = session.nodes[i];
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      const m = n.messages[idx];
+      if (m?.role === 'ai') {
+        m.parts.push({ type: 'tool', name, done: false });
+        return m.parts.length - 1;
+      }
+    }
+    return -1;
+  }
+
+  /** 工具调用完成（v0.0.71）：填充最近未完成的 tool part 的 args/result/done */
+  function fillToolPart(call: { name: string; args: Record<string, unknown>; rawArguments?: string }): void {
+    for (let i = session.nodes.length - 1; i >= 0; i--) {
+      const n = session.nodes[i];
+      const idx = n.selectIndex >= 0 && n.selectIndex < n.messages.length ? n.selectIndex : 0;
+      const m = n.messages[idx];
+      if (!m) continue;
+      for (let j = m.parts.length - 1; j >= 0; j--) {
+        const p = m.parts[j];
+        if (p.type === 'tool' && !p.done && p.name === call.name) {
+          p.args = call.rawArguments ?? JSON.stringify(call.args ?? {});
+          p.done = true;
+          return;
+        }
+      }
+    }
   }
 
   /** 累计一次请求的 usage 到会话统计（v0.0.65 计费卡数据源；v0.0.67 加缓存命中） */
@@ -481,6 +516,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
+            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
+            els.onToolCallDone?.(call);
           },
           onDone: () => {
             els.status.textContent = '';
@@ -503,7 +540,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.onWebSearch?.(state);
           },
           onToolStart: (name) => {
-            els.onToolStart?.(name);
+            // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
+            const partIndex = pushToolPart(name);
+            els.onToolStart?.(name, partIndex);
           },
         },
       );
@@ -823,6 +862,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
+            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
+            els.onToolCallDone?.(call);
           },
           onDone: () => {
             els.status.textContent = '';
@@ -844,7 +885,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.onWebSearch?.(state);
           },
           onToolStart: (name) => {
-            els.onToolStart?.(name);
+            // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
+            const partIndex = pushToolPart(name);
+            els.onToolStart?.(name, partIndex);
           },
         },
       );
@@ -934,6 +977,8 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onToolCall: (call) => {
             els.status.textContent = `调用工具: ${call.name}...`;
             logger.info('tool', `调用工具 ${call.name}`);
+            fillToolPart(call); // v0.0.71：工具标注填 args + 标记 done
+            els.onToolCallDone?.(call);
           },
           onDone: () => {
             els.status.textContent = '';
@@ -953,7 +998,9 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
             els.onWebSearch?.(state);
           },
           onToolStart: (name) => {
-            els.onToolStart?.(name);
+            // v0.0.71：往当前 AI 消息 parts 加 tool 标注（按到达顺序，与文本同流），再通知 GUI 渲染
+            const partIndex = pushToolPart(name);
+            els.onToolStart?.(name, partIndex);
           },
         },
       );
