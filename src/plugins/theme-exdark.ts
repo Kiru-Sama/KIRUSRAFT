@@ -568,6 +568,8 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-tool-switch input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
 .ex-tool-switch-track { position:absolute; inset:0; background:var(--ex-bg3); border:1px solid var(--ex-border); transition:all .2s; }
 .ex-tool-switch-track::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; background:var(--ex-text); transition:all .2s; }
+/* 工具审批徽标（v0.0.82）：需审批工具显示橙色 badge */
+.ex-tool-badge { display:inline-block; font-size:9px; padding:0 5px; background:var(--ex-accent2); color:var(--ex-bg); font-weight:bold; margin-left:4px; vertical-align:middle; border-radius:0; }
 .ex-tool-switch input:checked + .ex-tool-switch-track { background:var(--ex-accent); border-color:var(--ex-accent); }
 .ex-tool-switch input:checked + .ex-tool-switch-track::after { left:24px; background:var(--ex-bg); }
 .ex-plugin-detail { display:none; padding:0 14px 12px; border-top:2px solid var(--ex-border); }
@@ -1529,18 +1531,28 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
     const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
     const enabledTools = (agent.enabledTools as Record<string, boolean> | undefined) ?? {};
+    // v0.0.82：免审批白名单——跳过审批直接执行（存 config.agent.skipApproval）
+    const skipApproval = (agent.skipApproval as Record<string, boolean> | undefined) ?? {};
     listEl.innerHTML = tools
       .map((t) => {
         const on = enabledTools[t.name] !== false;
+        const needApprove = !!(t.needsApproval ?? false);
+        const skip = skipApproval[t.name] === true;
         return `<div class="ex-tool-row">
           <div class="ex-tool-info">
-            <div class="ex-tool-name">${esc(t.name)}</div>
+            <div class="ex-tool-name">${esc(t.name)}${needApprove ? ' <span class="ex-tool-badge">需审批</span>' : ''}</div>
             <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
           </div>
-          <label class="ex-tool-switch" title="${on ? '停用' : '启用'}">
-            <input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} />
-            <span class="ex-tool-switch-track"></span>
-          </label>
+          <div class="ex-tool-actions">
+            ${needApprove ? `<label class="ex-tool-switch" title="${skip ? '需审批' : '免审批'}" style="margin-right:6px;">
+              <input type="checkbox" data-ex-tool-skip="${esc(t.name)}" ${skip ? 'checked' : ''} />
+              <span class="ex-tool-switch-track" style="width:28px;"></span>
+            </label>` : ''}
+            <label class="ex-tool-switch" title="${on ? '停用' : '启用'}">
+              <input type="checkbox" data-ex-tool-toggle="${esc(t.name)}" ${on ? 'checked' : ''} />
+              <span class="ex-tool-switch-track"></span>
+            </label>
+          </div>
         </div>`;
       })
       .join('');
@@ -1557,6 +1569,22 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         }
         ctx.config.set('agent', { ...agent, enabledTools });
         showToast(chk.checked ? `已启用工具 ${name}` : `已停用工具 ${name}`);
+      });
+    });
+    // v0.0.82：免审批切换（跳过审批=工具直接执行，不提审批弹窗）
+    listEl.querySelectorAll<HTMLInputElement>('[data-ex-tool-skip]').forEach((chk) => {
+      chk.addEventListener('change', () => {
+        const name = chk.dataset.exToolSkip;
+        if (!name) return;
+        const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
+        const skipApproval = { ...((agent.skipApproval as Record<string, boolean> | undefined) ?? {}) };
+        if (chk.checked) {
+          skipApproval[name] = true;
+        } else {
+          delete skipApproval[name];
+        }
+        ctx.config.set('agent', { ...agent, skipApproval });
+        showToast(chk.checked ? `${name} 已设为免审批` : `${name} 需审批`);
       });
     });
   }

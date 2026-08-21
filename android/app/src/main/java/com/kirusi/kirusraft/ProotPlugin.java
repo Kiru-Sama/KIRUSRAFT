@@ -20,6 +20,30 @@ import java.util.concurrent.TimeUnit;
 @CapacitorPlugin(name = "ProotPlugin")
 public class ProotPlugin extends Plugin {
 
+    private static boolean prootInitialized = false;
+
+    private synchronized void ensureProot() {
+        if (prootInitialized) return;
+        prootInitialized = true;
+        try {
+            File libDir = new File(getContext().getFilesDir(), "lib");
+            libDir.mkdirs();
+            File prootFile = new File(libDir, "proot");
+            if (!prootFile.exists()) {
+                java.io.InputStream in = getContext().getAssets().open("proot");
+                java.io.FileOutputStream out = new java.io.FileOutputStream(prootFile);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+                in.close();
+                out.close();
+                prootFile.setExecutable(true);
+            }
+        } catch (Exception e) {
+            android.util.Log.e("ProotPlugin", "Failed to init proot binary", e);
+        }
+    }
+
     @PluginMethod
     public void createWorkspace(PluginCall call) {
         String name = call.getString("name", "default");
@@ -48,6 +72,7 @@ public class ProotPlugin extends Plugin {
         String cwd = call.getString("cwd", "/workspace");
         int timeout = call.getInt("timeout", 30);
         if (workspaceId == null || command == null) { call.reject("workspaceId and command required"); return; }
+        ensureProot();
         try {
             CommandResult result = exec(workspaceId, command, cwd, timeout);
             JSObject ret = new JSObject();
@@ -144,9 +169,10 @@ public class ProotPlugin extends Plugin {
 
         String prootCwd = cwd.isEmpty() ? "/workspace" : "/workspace/" + cwd.replaceAll("^/+", "");
         String nativeLibDir = new File(getContext().getFilesDir(), "lib").getAbsolutePath();
+        String prootBin = nativeLibDir + "/proot";
 
         ProcessBuilder pb = new ProcessBuilder(
-            nativeLibDir + "/libproot_exec.so",
+            prootBin,
             "--root-id", "--link2symlink", "--kill-on-exit",
             "-r", linuxDir.getAbsolutePath(),
             "-w", prootCwd,
@@ -160,9 +186,6 @@ public class ProotPlugin extends Plugin {
             "kirusraft", prootCwd, command
         );
         pb.directory(filesDir).redirectErrorStream(false);
-        pb.environment().put("PROOT_LOADER", nativeLibDir + "/libproot_loader.so");
-        pb.environment().put("PROOT_TMP_DIR", tmpDir.getAbsolutePath());
-        pb.environment().put("TMPDIR", tmpDir.getAbsolutePath());
         tmpDir.mkdirs();
 
         Process process = pb.start();
