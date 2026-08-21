@@ -154,7 +154,70 @@ public class ProotPlugin extends Plugin {
         call.resolve(ret);
     }
 
-    // ===== 命令执行（proot） =====
+    @PluginMethod
+    public void installRootfs(PluginCall call) {
+        String workspaceId = call.getString("workspaceId");
+        if (workspaceId == null) { call.reject("workspaceId required"); return; }
+        String url = call.getString("url");
+        try {
+            File linuxDir = new File(workspaceDir(workspaceId), "linux");
+            if (url != null && !url.isEmpty()) {
+                downloadAndExtract(url, linuxDir);
+            } else {
+                installFromAssets(linuxDir);
+            }
+            patch(workspaceDir(workspaceId));
+            JSObject ret = new JSObject();
+            ret.put("stage", "completed");
+            ret.put("progress", 100);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "安装失败", e);
+        }
+    }
+
+    private void installFromAssets(File linuxDir) throws Exception {
+        linuxDir.mkdirs();
+        java.io.InputStream in = getContext().getAssets().open("alpine-rootfs.tar.gz");
+        File tmpFile = new File(linuxDir.getParentFile(), "rootfs.tar.gz");
+        java.io.FileOutputStream out = new java.io.FileOutputStream(tmpFile);
+        byte[] buf = new byte[8192];
+        int len;
+        while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+        in.close();
+        out.close();
+        extractTarGz(tmpFile, linuxDir);
+        tmpFile.delete();
+    }
+
+    private void downloadAndExtract(String url, File linuxDir) throws Exception {
+        linuxDir.mkdirs();
+        File tmpFile = new File(linuxDir.getParentFile(), "rootfs.tar.gz");
+        java.io.InputStream in = new java.net.URL(url).openStream();
+        java.io.FileOutputStream out = new java.io.FileOutputStream(tmpFile);
+        byte[] buf = new byte[8192];
+        int len;
+        while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+        in.close();
+        out.close();
+        extractTarGz(tmpFile, linuxDir);
+        tmpFile.delete();
+    }
+
+    private void extractTarGz(File tarGz, File dest) throws Exception {
+        // 使用 Java 的 GZIPInputStream + 简单 tar 解压（仅支持 GNU tar 格式）
+        java.io.FileInputStream fis = new java.io.FileInputStream(tarGz);
+        java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(fis);
+        // 用 tar 命令解压（Android 系统自带 tar）
+        try {
+            Process tar = Runtime.getRuntime().exec(new String[]{
+                "tar", "xzf", tarGz.getAbsolutePath(), "-C", dest.getAbsolutePath()
+            });
+            tar.waitFor(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("解压失败，请确保 rootfs 格式正确", e);
+        }
+    }
     static class CommandResult { String stdout, stderr; int exitCode; }
     private CommandResult exec(String workspaceId, String command, String cwd, int timeout) throws Exception {
         File wsDir = workspaceDir(workspaceId);
