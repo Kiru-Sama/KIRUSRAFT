@@ -635,10 +635,14 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
       }
     }
     if (aiNodeIndex < 0 || !aiMsg) return;
-    // 以现有文本为起点续写（v0.0.70）：直接用 aiMsg.parts（引用共享，流式写它即落盘），续写模式清旧气泡
+    // 以现有文本为起点续写（v0.0.77 修复丢内容）：合并所有 text part 为续写起点，
+    // 不能因首 part 非 text 而重置为空（那会丢掉中止前已生成的内容）
     let aiParts = aiMsg.parts;
     if (aiParts.length === 0 || aiParts[0].type !== 'text') {
-      aiParts = [{ type: 'text', text: '' }];
+      const existingText = aiMsg.parts.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
+        .map((p) => p.text)
+        .join('\n');
+      aiParts = [{ type: 'text', text: existingText }];
       aiMsg.parts = aiParts;
     }
     void streamReplyAt(aiNodeIndex, aiParts, true);

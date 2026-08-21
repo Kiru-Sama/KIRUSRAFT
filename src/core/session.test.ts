@@ -11,9 +11,10 @@ import {
   forkSessionAtMessage,
   migrateLegacySession,
   toChatMessages,
+  toChatContent,
   genId,
 } from './session';
-import type { Session } from './types';
+import type { Session, UIMessagePart } from './types';
 
 function chatSession(): Session {
   const s = createSession();
@@ -181,6 +182,17 @@ describe('session 节点链会话状态机（v0.0.65 RikkaHub 消息树）', () 
     const msgs = toChatMessages(s);
     // AI 消息 content = 纯文本（tool 标注被过滤），且文本顺序保留
     expect(msgs[1].content).toBe('好的我来搜索\n这是结果');
+  });
+
+  it('toChatContent 合并 text parts 时保留全部文本（续写不丢内容基础，v0.0.77）', () => {
+    // 模拟中止时 AI 消息：首 part 是 tool（工具调用先发生），后有 text —— 续写需合并全部 text
+    const parts: UIMessagePart[] = [
+      { type: 'tool', name: 'search_web', args: '{}', done: true },
+      { type: 'text', text: '搜索到结果一' },
+      { type: 'tool', name: 'get_time', done: false },
+      { type: 'text', text: '时间信息' },
+    ];
+    expect(toChatContent(parts)).toBe('搜索到结果一\n时间信息');
   });
 
   it('toChatMessages maxRounds 按轮截断历史', () => {
