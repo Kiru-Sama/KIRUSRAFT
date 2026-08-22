@@ -1259,9 +1259,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           </div>
         </div>
       </div>
+      <!-- FAB（工作区列表页右下角创建按钮，fixed 脱离页 stacking context，手机点击修复） -->
+      <button type="button" class="ex-sb-fab" data-ex="sb-add" title="创建工作区">+</button>
     </div>
-    <!-- FAB（工作区列表页右下角创建按钮，fixed 脱离页 stacking context，手机点击修复） -->
-    <button type="button" class="ex-sb-fab" data-ex="sb-add" title="创建工作区">+</button>
     <div class="ex-toast-container" data-ex="toast"></div>
     <!-- 会话长按二级菜单（置顶/分享/管理/删除/重新生成标题）：放在 .ex-app 外，避免 overflow:hidden 裁剪 -->
     <div class="ex-conv-menu" data-ex="conv-menu">
