@@ -636,20 +636,18 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-tool-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .ex-tool-mgmt-card { display:grid; grid-template-columns:1fr auto; gap:6px 12px; background:var(--ex-surface2); border:1px solid var(--ex-border); padding:12px; }
 .ex-tool-name { grid-column:1; grid-row:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:900; color:var(--ex-text); }
-.ex-tool-switch-row { grid-column:2; grid-row:1; display:grid; grid-template-columns:44px 44px; gap:12px; align-items:center; }
+.ex-tool-switch-row { grid-column:2; grid-row:1; display:grid; grid-template-columns:44px; justify-content:end; }
 .ex-tool-more { grid-column:1; grid-row:2; display:flex; flex-direction:column; min-width:0; }
 .ex-tool-more summary { cursor:pointer; font-size:10px; color:var(--ex-text3); user-select:none; white-space:nowrap; }
 .ex-tool-more summary:hover { color:var(--ex-accent); }
 .ex-tool-more summary::after { content:' ▾'; color:var(--ex-accent2); }
-.ex-tool-label-row { grid-column:2; grid-row:2; display:grid; grid-template-columns:44px 44px; gap:12px; }
-.ex-tool-label-row span { font-size:9px; color:var(--ex-text2); text-align:center; }
 .ex-tool-desc { font-size:11px; color:var(--ex-text2); margin-top:6px; line-height:1.5; word-break:break-all; }
 .ex-tool-params { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
 .ex-tool-chip { font-size:9px; padding:1px 6px; border:1px solid var(--ex-border2); color:var(--ex-accent); }
 /* 沙箱管理三页（v0.0.87 对齐 RikkaHub WorkspacePage/DetailPage/TerminalPage：列表 + 详情[Basic/Files] + 终端） */
 .ex-sandbox-manage { display:none; position:fixed; inset:0; z-index:5000; background:var(--ex-bg); flex-direction:column; overflow:hidden; color:var(--ex-text); }
 .ex-sandbox-manage.show { display:flex; }
-.ex-sb-page { display:flex; flex-direction:column; flex:1; min-height:0; }
+.ex-sb-page { display:flex; flex-direction:column; flex:1; min-height:0; position:relative; }
 .ex-sb-page[hidden] { display:none; }
 .ex-sb-topbar { display:flex; align-items:center; gap:10px; flex-shrink:0; padding:calc(14px + env(safe-area-inset-top,0px)) 20px 14px; background:var(--ex-surface); border-bottom:1px solid var(--ex-border); }
 .ex-sb-topbar h2 { margin:0; font-size:17px; color:var(--ex-text); font-weight:800; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -680,7 +678,7 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-sb-path-up:hover { border-color:var(--ex-accent); color:var(--ex-accent); }
 .ex-sb-path { font-size:11px; color:var(--ex-text2); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* FAB（对齐 RikkaHub FloatingActionButton） */
-.ex-sb-fab { position:absolute; right:20px; bottom:20px; width:48px; height:48px; border-radius:50%; background:var(--ex-accent); color:var(--ex-bg); border:none; font-size:22px; font-weight:900; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.35); z-index:10; }
+.ex-sb-fab { position:absolute; right:20px; bottom:calc(20px + env(safe-area-inset-bottom,0px)); width:48px; height:48px; border-radius:50%; background:var(--ex-accent); color:var(--ex-bg); border:none; font-size:22px; font-weight:900; cursor:pointer; touch-action:manipulation; box-shadow:0 3px 10px rgba(0,0,0,.35); z-index:10; }
 .ex-sb-fab:hover { filter:brightness(1.1); }
 /* 工作区列表卡片（对齐 RikkaHub WorkspaceCard：图标+名称+状态+三点菜单） */
 .ex-sandbox-wslist { display:flex; flex-direction:column; gap:10px; }
@@ -2328,7 +2326,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-tool-desc">${esc(t.description ?? '')}</div>
               ${paramChips(t)}
             </details>
-            <div class="ex-tool-label-row"><span></span><span>启用</span></div>
           </div>`;
           })
           .join('')}</div>

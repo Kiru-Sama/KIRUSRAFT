@@ -9,6 +9,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import type { PluginManifest } from '../core/manifest';
 import type { UIMessagePart } from '../core/types';
+import { logger } from '../core/logger';
 
 export const name = 'sandbox-proot';
 export const inject = ['tools'];
@@ -161,6 +162,7 @@ export function apply(ctx: Context): void {
       else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       const list = loadWorkspaces().filter((w) => w.id !== id);
       saveWorkspaces(list);
+      logger.info('workspace', `删除工作区 ${id}`);
       return [{ type: 'text', text: `工作区 ${id} 已删除` }];
     },
   });
