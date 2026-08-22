@@ -10,6 +10,7 @@ import { Context } from '@deepseek-ai/cordis';
 import type { PluginManifest } from '../core/manifest';
 import type { UIMessagePart } from '../core/types';
 import { logger } from '../core/logger';
+import { Preferences } from '@capacitor/preferences';
 
 export const name = 'sandbox-proot';
 export const inject = ['tools'];
@@ -35,12 +36,22 @@ interface Workspace {
 
 const WS_KEY = 'kirusraft.sandbox.workspaces';
 
-function loadWorkspaces(): Workspace[] {
+async function loadWorkspaces(): Promise<Workspace[]> {
+  try {
+    if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
+      const { value } = await Preferences.get({ key: WS_KEY });
+      return value ? JSON.parse(value) as Workspace[] : [];
+    }
+  } catch {}
   try {
     return JSON.parse(localStorage.getItem(WS_KEY) ?? '[]') as Workspace[];
   } catch { return []; }
 }
-function saveWorkspaces(ws: Workspace[]): void {
+async function saveWorkspaces(ws: Workspace[]): Promise<void> {
+  if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
+    await Preferences.set({ key: WS_KEY, value: JSON.stringify(ws) });
+    return;
+  }
   localStorage.setItem(WS_KEY, JSON.stringify(ws));
 }
 function genId(): string {
@@ -98,9 +109,9 @@ export function apply(ctx: Context): void {
         const result = await proot.createWorkspace({ name });
         if (result && result.id) ws.id = result.id;
       }
-      const list = loadWorkspaces();
+      const list = await loadWorkspaces();
       list.push(ws);
-      saveWorkspaces(list);
+      await saveWorkspaces(list);
       logger.info('workspace', `创建成功 ${ws.id}(${name}) 列表长度 ${list.length}`);
       return [{ type: 'text', text: `工作区已创建\nID: ${ws.id}\n名称: ${name}` }];
     },
@@ -123,11 +134,11 @@ export function apply(ctx: Context): void {
       if (!name) return [{ type: 'text', text: '名称不能为空' }];
       const proot = getProot();
       if (proot?.renameWorkspace) await proot.renameWorkspace({ id, name });
-      const list = loadWorkspaces();
+      const list = await loadWorkspaces();
       const ws = list.find((w) => w.id === id);
       if (!ws) return [{ type: 'text', text: `工作区 ${id} 不存在` }];
       ws.name = name;
-      saveWorkspaces(list);
+      await saveWorkspaces(list);
       return [{ type: 'text', text: `工作区已重命名\nID: ${id}\n新名称: ${name}` }];
     },
   });
@@ -137,7 +148,7 @@ export function apply(ctx: Context): void {
     description: '列出所有沙箱工作区（ID/名称/创建时间/rootfs 状态）',
     parameters: { type: 'object', properties: {} },
     async execute() {
-      const list = loadWorkspaces();
+      const list = await loadWorkspaces();
       if (list.length === 0) return [{ type: 'text', text: '（无工作区）' }];
       const lines = list.map((w) => `${w.id}  ${w.name}  ${w.rootfsInstalled ? '✓ rootfs' : '✗ 未安装rootfs'}  ${new Date(w.createdAt).toLocaleString('zh-CN')}`);
       return [{ type: 'text', text: lines.join('\n') }];
@@ -159,8 +170,8 @@ export function apply(ctx: Context): void {
       const id = String(args.workspaceId);
       const proot = getProot();
       if (proot) await proot.deleteWorkspace({ id });
-      const list = loadWorkspaces().filter((w) => w.id !== id);
-      saveWorkspaces(list);
+      const list = (await loadWorkspaces()).filter((w) => w.id !== id);
+      await saveWorkspaces(list);
       logger.info('workspace', `删除工作区 ${id}`);
       return [{ type: 'text', text: `工作区 ${id} 已删除` }];
     },
@@ -187,8 +198,8 @@ export function apply(ctx: Context): void {
         return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : '⚠ 非 Android 环境：rootfs 安装仅支持原生平台。\n已标记工作区 rootfs 为已安装（模拟）。' }];
       }
       await proot.installRootfs({ workspaceId: id, url });
-      const list = loadWorkspaces().map((w) => w.id === id ? { ...w, rootfsInstalled: true, rootfsUrl: url } : w);
-      saveWorkspaces(list);
+      const list = (await loadWorkspaces()).map((w) => w.id === id ? { ...w, rootfsInstalled: true, rootfsUrl: url } : w);
+      await saveWorkspaces(list);
       return [{ type: 'text', text: `rootfs 安装完成（工作区 ${id}）` }];
     },
   });

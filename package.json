@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@capacitor/core": "^8.5.0",
+    "@capacitor/preferences": "^8.0.1",
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
