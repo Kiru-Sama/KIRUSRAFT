@@ -97,8 +97,6 @@ export function apply(ctx: Context): void {
       if (proot) {
         const result = await proot.createWorkspace({ name });
         if (result && result.id) ws.id = result.id;
-      } else if (isNative()) {
-        return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       }
       const list = loadWorkspaces();
       list.push(ws);
@@ -125,7 +123,6 @@ export function apply(ctx: Context): void {
       if (!name) return [{ type: 'text', text: '名称不能为空' }];
       const proot = getProot();
       if (proot?.renameWorkspace) await proot.renameWorkspace({ id, name });
-      else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       const list = loadWorkspaces();
       const ws = list.find((w) => w.id === id);
       if (!ws) return [{ type: 'text', text: `工作区 ${id} 不存在` }];
@@ -162,7 +159,6 @@ export function apply(ctx: Context): void {
       const id = String(args.workspaceId);
       const proot = getProot();
       if (proot) await proot.deleteWorkspace({ id });
-      else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       const list = loadWorkspaces().filter((w) => w.id !== id);
       saveWorkspaces(list);
       logger.info('workspace', `删除工作区 ${id}`);
