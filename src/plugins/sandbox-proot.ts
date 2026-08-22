@@ -95,13 +95,15 @@ export function apply(ctx: Context): void {
       const ws: Workspace = { id: genId(), name, createdAt: Date.now(), rootfsInstalled: false };
       const proot = getProot();
       if (proot) {
-        await proot.createWorkspace({ name });
+        const result = await proot.createWorkspace({ name });
+        if (result && result.id) ws.id = result.id;
       } else if (isNative()) {
         return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
       }
       const list = loadWorkspaces();
       list.push(ws);
       saveWorkspaces(list);
+      logger.info('workspace', `创建成功 ${ws.id}(${name}) 列表长度 ${list.length}`);
       return [{ type: 'text', text: `工作区已创建\nID: ${ws.id}\n名称: ${name}` }];
     },
   });

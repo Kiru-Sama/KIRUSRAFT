@@ -2010,7 +2010,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     };
     // 列表页：卡片（图标+名称+状态+三点菜单）+ FAB 创建 + 重命名/删除（对齐 RikkaHub WorkspacePage）
     async function loadWorkspaceList(): Promise<void> {
-      if (!wsListEl) return;
+      if (!wsListEl) { logger.info('workspace', 'loadWorkspaceList: wsListEl null'); return; }
       wsListEl.innerHTML = '<div style="font-size:12px;color:var(--ex-text3);padding:12px;text-align:center;">加载中...</div>';
       try {
         const parts = await ctx.tools.execute('workspace_list', {});
