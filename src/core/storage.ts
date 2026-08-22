@@ -145,7 +145,9 @@ export class StorageService extends Service {
     const dbReady = (this as unknown as { db: { db: unknown } }).db?.db ? '开' : '未开';
     logger.info('storage', `getItem ready 完成 memoryFallback=${this.memoryFallback} db=${dbReady}`);
     if (this.memoryFallback) return undefined;
-    const val = await this.db.get<T>('keyvalue', key);
+    // v0.0.96 修复：keyvalue store 记录是 { key, value }，get 返回整条记录，必须取 .value（此前返回整条导致 loadWorkspaces 拿到对象 push 崩溃）
+    const rec = await this.db.get<{ key: string; value: T }>('keyvalue', key);
+    const val = rec?.value;
     logger.info('storage', `getItem 读取完成 key=${key} 值=${val === undefined ? '无' : JSON.stringify(val).slice(0, 60)}`);
     return val;
   }

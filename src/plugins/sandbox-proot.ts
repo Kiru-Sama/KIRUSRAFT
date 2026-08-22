@@ -82,8 +82,10 @@ export function apply(ctx: Context): void {
     logger.info('workspace', 'loadWorkspaces: 开始');
     try {
       const val = await ctx.storage.getItem<Workspace[]>('sandbox.workspaces');
-      logger.info('workspace', `loadWorkspaces: 完成 len=${Array.isArray(val) ? val.length : 'null'}`);
-      return val ?? [];
+      // v0.0.96 防御：非数组（旧格式 {key,value} 整条记录/损坏数据）一律当空列表，避免 push 崩溃
+      const list = Array.isArray(val) ? val : [];
+      logger.info('workspace', `loadWorkspaces: 完成 len=${list.length}`);
+      return list;
     } catch (e) {
       logger.error('workspace', `loadWorkspaces: 异常 ${e instanceof Error ? e.message : String(e)}`);
       return [];
