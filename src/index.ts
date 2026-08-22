@@ -94,7 +94,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<Context
   const mounted = new Set(['core-services', theme, 'fallback-gui']);
   for (const m of PLUGINS) {
     if (mounted.has(m.name)) continue;
-    await ctx.plugin(toCordisPlugin(m));
+    // v0.0.96 诊断：记录每个插件挂载状态（成功/失败/卡住），单插件失败不再中断后续插件
+    try {
+      logger.info('boot', `挂载插件 ${m.name}（inject=${JSON.stringify(m.inject)}）`);
+      await ctx.plugin(toCordisPlugin(m));
+      logger.info('boot', `插件挂载完成 ${m.name}`);
+    } catch (error) {
+      logger.error('boot', `插件挂载失败 ${m.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // 7. 崩溃自动拉起应急控制台（白屏终极保险）：

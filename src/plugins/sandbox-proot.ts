@@ -76,6 +76,7 @@ function sanitizePath(p: string): string {
 
 // ---- 插件入口 ----
 export function apply(ctx: Context): void {
+  logger.info('sandbox', 'sandbox-proot 插件 apply 执行');
   // IndexedDB 键值存储（替代 localStorage/Preferences，成熟方案）
   const loadWorkspaces = async (): Promise<Workspace[]> => {
     try {
@@ -92,6 +93,7 @@ export function apply(ctx: Context): void {
     }
   };
   // ===== 工作区管理 =====
+  logger.info('sandbox', 'sandbox-proot 开始注册工作区工具');
   ctx.tools.register(ctx, {
     name: 'workspace_create',
     description: '创建一个新的沙箱工作区（生成 UUID，创建 files/linux/tmp 目录）。返回工作区 ID。',
