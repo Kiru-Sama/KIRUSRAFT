@@ -1836,6 +1836,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     sandboxWsId = '';
     const showPage = (p: HTMLElement | null): void => {
       [pageList, pageDetail, pageTerm].forEach((pg) => { if (pg) pg.hidden = pg !== p; });
+      // FAB 只在列表页显示
+      const fab = manage.querySelector('[data-ex="sb-add"]') as HTMLElement | null;
+      if (fab) fab.hidden = p !== pageList;
     };
     openBtn?.addEventListener('click', () => {
       manage.classList.add('show');
