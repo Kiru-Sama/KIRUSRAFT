@@ -2170,7 +2170,9 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         try {
           const content = await f.text();
           const path = `${currentFsPath === '/' ? '' : currentFsPath}/${f.name}`;
-          await ctx.tools.execute('workspace_write_file', { workspaceId: sandboxWsId, path, content });
+          const parts = await ctx.tools.execute('workspace_write_file', { workspaceId: sandboxWsId, path, content });
+          const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+          if (text.includes('未加载') || text.includes('模拟')) { fail++; continue; }
           ok++;
         } catch { fail++; }
       }
@@ -2211,7 +2213,13 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       rootfsProgress.textContent = '安装中...';
       rootfsInstall.disabled = true;
       try {
-        await ctx.tools.execute('workspace_install_rootfs', { workspaceId: sandboxWsId });
+        const parts = await ctx.tools.execute('workspace_install_rootfs', { workspaceId: sandboxWsId });
+        const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+        if (text.includes('未加载') || text.includes('模拟')) {
+          rootfsProgress.textContent = '安装失败：原生插件不可用';
+          rootfsInstall.disabled = false;
+          return;
+        }
         rootfsProgress.textContent = '安装完成';
         rootfsState.textContent = '已装 rootfs';
         rootfsState.classList.add('installed');
