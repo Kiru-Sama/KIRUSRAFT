@@ -58,6 +58,7 @@ interface ProotApi {
   readFile(options: { workspaceId: string; path: string }): Promise<{ content: string }>;
   writeFile(options: { workspaceId: string; path: string; content: string }): Promise<void>;
   listFiles(options: { workspaceId: string; path: string }): Promise<{ entries: { name: string; type: 'file' | 'dir'; size: number }[] }>;
+  deleteFile?(options: { workspaceId: string; path: string }): Promise<void>;
 }
 declare const Capacitor: { isNativePlatform: () => boolean; convertFileSrc: (p: string) => string; Plugins?: { ProotPlugin?: ProotApi } } | undefined;
 
@@ -298,6 +299,31 @@ export function apply(ctx: Context): void {
       const result = await proot.listFiles({ workspaceId: id, path });
       const lines = result.entries.map((e) => `${e.type === 'dir' ? '[目录]' : '[文件]'} ${e.name}  ${e.type === 'dir' ? '-' : e.size + 'B'}`);
       return [{ type: 'text', text: lines.join('\n') || '(空目录)' }];
+    },
+  });
+
+  // v0.0.87 文件删除（对齐 RikkaHub 文件三点菜单 Delete）
+  ctx.tools.register(ctx, {
+    name: 'workspace_delete_file',
+    description: '删除沙箱工作区内的文件或空目录（不可恢复）',
+    needsApproval: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: '工作区 ID' },
+        path: { type: 'string', description: '文件或空目录路径' },
+      },
+      required: ['workspaceId', 'path'],
+    },
+    async execute(args) {
+      const id = String(args.workspaceId);
+      const path = String(args.path);
+      const proot = getProot();
+      if (proot?.deleteFile) await proot.deleteFile({ workspaceId: id, path });
+      else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
+      else return [{ type: 'text', text: `[沙箱模拟] 删除 ${id}:${path}\n（非 Android 环境）` }];
+      logger.info('workspace', `删除文件 ${id}:${path}`);
+      return [{ type: 'text', text: `已删除 ${path}` }];
     },
   });
 

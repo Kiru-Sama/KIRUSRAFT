@@ -703,6 +703,9 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-sandbox-tree-item.dir:hover { background:var(--ex-surface2); }
 /* v0.0.87 选中态：文件行点击查看时高亮（RikkaHub 列表选中风格：圆角背景 + accent 左竖条） */
 .ex-sandbox-tree-item.selected { background:var(--ex-surface2); border-radius:6px; box-shadow:inset 2px 0 0 var(--ex-accent); }
+/* 文件行三点菜单按钮 */
+.ex-sandbox-tree-menu { flex-shrink:0; background:none; border:none; color:var(--ex-text3); font-size:14px; padding:0 5px; cursor:pointer; font-weight:900; line-height:1; margin-left:auto; }
+.ex-sandbox-tree-menu:hover { color:var(--ex-accent); }
 .ex-sandbox-tree-icon { flex-shrink:0; width:14px; color:var(--ex-accent2); }
 .ex-sandbox-tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ex-sandbox-tree-size { margin-left:auto; font-size:10px; color:var(--ex-text3); }
@@ -1188,6 +1191,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-sb-card-title">工具审批</div>
               <div class="ex-sb-toggle-row"><span>读取文件</span><input type="checkbox" data-ex="sb-appr-read" /></div>
               <div class="ex-sb-toggle-row"><span>写入文件</span><input type="checkbox" data-ex="sb-appr-write" /></div>
+              <div class="ex-sb-toggle-row"><span>编辑文件</span><input type="checkbox" data-ex="sb-appr-edit" /></div>
               <div class="ex-sb-toggle-row"><span>Shell</span><input type="checkbox" data-ex="sb-appr-shell" /></div>
             </div>
           </div>
@@ -1811,6 +1815,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   let sandboxShellInput: HTMLInputElement | null = null;
   let sandboxShellRun: HTMLButtonElement | null = null;
   let sandboxShellOut: HTMLElement | null = null;
+  let sbDirty = false; // v0.0.87 编辑器 dirty 追踪（返回确认）
 
   /** 沙箱管理三页（v0.0.87 对齐 RikkaHub WorkspacePage/DetailPage/TerminalPage）：列表 → 详情[Basic/Files] / 终端 */
   function initSandboxManage(): void {
@@ -1913,6 +1918,28 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     let currentWsName = '';
     let currentFs: 'files' | 'rootfs' = 'files';
     let currentFsPath = '/workspace';
+    // 文件三点菜单（Export/Share/Delete，对齐 RikkaHub）
+    const showFileMenu = (menuBtn: HTMLElement, wsId: string, path: string): void => {
+      const pop = document.createElement('div');
+      pop.className = 'ex-sb-ws-menu-pop';
+      pop.innerHTML = '<button type="button" data-ex="file-export">导出</button><button type="button" data-ex="file-share">分享</button><button type="button" class="danger" data-ex="file-delete">删除</button>';
+      const rect = menuBtn.getBoundingClientRect();
+      pop.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 100)}px`;
+      pop.style.left = `${Math.max(8, Math.min(rect.left - 100, window.innerWidth - 140))}px`;
+      document.body.appendChild(pop);
+      const close = (): void => pop.remove();
+      window.setTimeout(() => { document.addEventListener('click', close, { once: true }); }, 0);
+      pop.querySelector('[data-ex="file-export"]')?.addEventListener('click', () => { close(); void loadSandboxFile(wsId, path, true, 'download'); });
+      pop.querySelector('[data-ex="file-share"]')?.addEventListener('click', () => { close(); void loadSandboxFile(wsId, path, true, 'share'); });
+      pop.querySelector('[data-ex="file-delete"]')?.addEventListener('click', () => {
+        close();
+        if (!confirm('确认删除？')) return;
+        ctx.tools.execute('workspace_delete_file', { workspaceId: wsId, path }).then(() => {
+          showToast('已删除');
+          if (sandboxWsId) void loadDetailFiles(sandboxWsId, currentFs, currentFsPath);
+        }).catch(() => showToast('删除失败'));
+      });
+    };
     // Files/Rootfs 当前目录平铺加载（对齐 RikkaHub WorkspaceDetailPage Files tab：路径栏 + 平铺列表）
     const loadDetailFiles = async (wsId: string, fs: 'files' | 'rootfs', p: string): Promise<void> => {
       currentFs = fs;
@@ -1934,18 +1961,46 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           row.className = 'ex-sandbox-tree-item' + (it.type === 'dir' ? ' dir' : ' file');
           row.style.cursor = 'pointer';
           const icon = it.type === 'dir' ? '▸' : '·';
+          const ext = it.name.split('.').pop()?.toLowerCase() || '';
+          const TEXT_EXTS = 'txt,md,json,xml,yaml,yml,toml,ini,csv,log,html,css,js,ts,tsx,jsx,kt,py,go,rs,c,sh,sql,lua,php,diff,srt,dockerfile,dart,swift,m,h,cpp,hpp,scss,less,vue,svelte,astro,conf,cfg,env,gitignore,editorconfig,npmrc,yarnrc,lock,gradle,mjs,cjs,mts,cts'.split(',');
+          const IMG_EXTS = 'png,jpg,jpeg,gif,webp,bmp,svg,ico,avif'.split(',');
           row.innerHTML = `<span class="ex-sandbox-tree-icon">${icon}</span><span class="ex-sandbox-tree-name">${esc(it.name)}</span>${it.type === 'file' ? `<span class="ex-sandbox-tree-size">${esc(it.size)}</span>` : ''}`;
-          row.addEventListener('click', () => {
+          // 文件行点击：dirty 保护 + 类型路由（TEXT→编辑器 IMAGE→提示 OTHER→下载）
+          row.addEventListener('click', (ev) => {
+            if ((ev.target as HTMLElement).closest('[data-ex="tree-menu"]')) return;
             const childPath = `${p === '/' ? '' : p}/${it.name}`;
             if (it.type === 'dir') {
+              if (sbDirty && !confirm('放弃更改？')) return;
+              sbDirty = false;
               void loadDetailFiles(wsId, fs, childPath);
             } else {
-              // v0.0.87 选中态：清除其他行选中，高亮当前文件行
+              if (sbDirty && !confirm('放弃更改？')) return;
+              sbDirty = false;
               treeEl.querySelectorAll('.ex-sandbox-tree-item.selected').forEach((n) => n.classList.remove('selected'));
               row.classList.add('selected');
-              void loadSandboxFile(wsId, childPath);
+              if (IMG_EXTS.includes(ext)) {
+                if (sandboxFileviewEl) sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(childPath)}</div><div style="padding:12px;text-align:center;color:var(--ex-text3);font-size:12px">图片预览（仅原生 APK 支持）</div>`;
+              } else if (TEXT_EXTS.includes(ext)) {
+                void loadSandboxFile(wsId, childPath, fs === 'rootfs');
+              } else {
+                void loadSandboxFile(wsId, childPath, true, 'download');
+              }
             }
           });
+          // 三点菜单（Export/Share/Delete，对齐 RikkaHub）
+          if (it.type === 'file') {
+            const menuBtn = document.createElement('button');
+            menuBtn.type = 'button';
+            menuBtn.className = 'ex-sandbox-tree-menu';
+            menuBtn.textContent = '···';
+            menuBtn.title = '更多';
+            row.appendChild(menuBtn);
+            menuBtn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const childPath = `${p === '/' ? '' : p}/${it.name}`;
+              showFileMenu(menuBtn, wsId, childPath);
+            });
+          }
           treeEl.appendChild(row);
         }
       } catch {
@@ -2107,6 +2162,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     const apprRead = manage.querySelector('[data-ex="sb-appr-read"]') as HTMLInputElement | null;
     const apprWrite = manage.querySelector('[data-ex="sb-appr-write"]') as HTMLInputElement | null;
     const apprShell = manage.querySelector('[data-ex="sb-appr-shell"]') as HTMLInputElement | null;
+    const apprEdit = manage.querySelector('[data-ex="sb-appr-edit"]') as HTMLInputElement | null;
     // v0.0.87 修正：审批开关接 config.agent.needsApproval（执行链 chat-controller buildAgentToolExecutor 真实消费，
     // AI 调用对应工具前弹 confirm 审批；此前写 approvals 死键无人读，是占位）
     const agentCfg = (ctx.config.get('agent') ?? {}) as { needsApproval?: Record<string, boolean> };
@@ -2115,6 +2171,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     if (apprRead) apprRead.checked = sbNeeds.workspace_read_file ?? false;
     if (apprWrite) apprWrite.checked = sbNeeds.workspace_write_file ?? sbDefNeed.workspace_write_file;
     if (apprShell) apprShell.checked = sbNeeds.workspace_shell ?? sbDefNeed.workspace_shell;
+    if (apprEdit) apprEdit.checked = sbNeeds.workspace_edit_file ?? false;
     const apprVal = (key: string, v: boolean): void => {
       const agent = (ctx.config.get('agent') ?? {}) as Record<string, unknown>;
       const needsApproval = { ...((agent.needsApproval as Record<string, boolean> | undefined) ?? {}) };
@@ -2125,6 +2182,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     apprRead?.addEventListener('change', () => apprVal('workspace_read_file', apprRead.checked));
     apprWrite?.addEventListener('change', () => apprVal('workspace_write_file', apprWrite.checked));
     apprShell?.addEventListener('change', () => apprVal('workspace_shell', apprShell.checked));
+    apprEdit?.addEventListener('change', () => apprVal('workspace_edit_file', apprEdit.checked));
     // —— 终端页 ——
     manage.querySelector('[data-ex="sb-term-back"]')?.addEventListener('click', () => { showPage(pageDetail); });
     sandboxShellRun?.addEventListener('click', async () => {
@@ -2218,18 +2276,40 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     }
   }
 
-  /** 加载文件内容到查看/编辑面板（v0.0.86 对齐 RikkaHub workspace_read_file，保存走 write_file） */
-  async function loadSandboxFile(wsId: string, path: string): Promise<void> {
+  /** 加载文件内容到查看/编辑面板（v0.0.86 对齐 RikkaHub workspace_read_file，保存走 write_file */
+  async function loadSandboxFile(wsId: string, path: string, readOnly = false, mode: 'text' | 'download' | 'share' = 'text'): Promise<void> {
     if (!sandboxFileviewEl) return;
+    // 下载/分享模式：直接读内容后操作，不打开编辑器
+    if (mode === 'download' || mode === 'share') {
+      sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(path)} 加载中...</div>`;
+      try {
+        const parts = await ctx.tools.execute('workspace_read_file', { workspaceId: wsId, path });
+        const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+        const name = path.split('/').pop() || 'file';
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        if (mode === 'download') {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = name; a.click();
+          URL.revokeObjectURL(url);
+        } else {
+          if (navigator.share) await navigator.share({ title: name, text: text.slice(0, 5000) }).catch(() => {});
+          else await navigator.clipboard.writeText(text).catch(() => {});
+        }
+      } catch { /* 静默 */ }
+      sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(path)}</div>`;
+      return;
+    }
+    // 文本编辑器模式
     sandboxFileviewEl.innerHTML = `<div class="ex-sandbox-fileview-path">${esc(path)} 加载中...</div>`;
     try {
       const parts = await ctx.tools.execute('workspace_read_file', { workspaceId: wsId, path });
       const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
       sandboxFileviewEl.innerHTML = `
         <div class="ex-sandbox-fileview-path">${esc(path)}</div>
-        <textarea data-ex="sandbox-fileview-text" spellcheck="false">${esc(text)}</textarea>
+        <textarea data-ex="sandbox-fileview-text" spellcheck="false"${readOnly ? ' readonly' : ''}>${esc(text)}</textarea>
         <div class="ex-sandbox-fileview-actions">
-          <button type="button" class="ex-manage-btn" data-ex="sandbox-fileview-save">保存</button>
+          ${readOnly ? '' : '<button type="button" class="ex-manage-btn" data-ex="sandbox-fileview-save">保存</button>'}
           <button type="button" class="ex-manage-btn" data-ex="sandbox-fileview-export">导出</button>
           <span data-ex="sandbox-fileview-status"></span>
         </div>`;
@@ -2237,15 +2317,15 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       const exportBtn = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-export"]') as HTMLButtonElement | null;
       const status = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-status"]') as HTMLElement | null;
       const ta = sandboxFileviewEl.querySelector('[data-ex="sandbox-fileview-text"]') as HTMLTextAreaElement | null;
-      // v0.0.87 导出（对齐 RikkaHub Export：读文件内容 → 本地下载）
+      // dirty 追踪（返回确认）
+      sbDirty = false;
+      ta?.addEventListener('input', () => { sbDirty = true; });
       exportBtn?.addEventListener('click', () => {
         const name = path.split('/').pop() || 'file';
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const blob = new Blob([ta?.value ?? text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        a.click();
+        a.href = url; a.download = name; a.click();
         URL.revokeObjectURL(url);
       });
       saveBtn?.addEventListener('click', async () => {
@@ -2254,6 +2334,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         try {
           await ctx.tools.execute('workspace_write_file', { workspaceId: wsId, path, content: ta.value });
           status.textContent = '已保存';
+          sbDirty = false;
         } catch {
           status.textContent = '保存失败';
         }
