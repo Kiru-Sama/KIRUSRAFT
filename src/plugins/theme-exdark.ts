@@ -1885,6 +1885,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       window.setTimeout(() => nameInput.focus(), 30);
     };
     nameOk?.addEventListener('click', async () => {
+      logger.info('sandbox', `nameOk 点击 mode=${sbNameMode} name=${nameInput?.value?.trim()}`);
       if (!nameDialog || !nameInput || !nameErr) return;
       const v = nameInput.value.trim();
       if (!v) return;
@@ -1900,17 +1901,23 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           void loadWorkspaceList();
         } else {
           const parts = await ctx.tools.execute('workspace_create', { name: v });
+          logger.info('sandbox', `workspace_create 调用 name=${v}`);
           showToast('已创建');
           // 手动追加卡片到列表（不依赖 localStorage 刷新，避免环境差异导致不显示）
           // 注意：不调用 loadWorkspaceList，因为它的 wsListEl.innerHTML='加载中...' 会清空刚追加的卡片
           const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
           const idMatch = text.match(/ID:\s*(\S+)/);
           const newId = idMatch ? idMatch[1] : '';
+          logger.info('sandbox', `workspace_create 返回 text=${text.slice(0, 80)} newId=${newId}`);
+          showToast(`调试: text=${text.slice(0, 60)}`);
           if (wsListEl && newId) {
             const empty = wsListEl.querySelector('[style*="text-align:center"]');
             if (empty) empty.remove();
             const card = createWsCard(newId, v, '', []);
             if (card) wsListEl.appendChild(card);
+            else showToast('调试: createWsCard 返回 null');
+          } else {
+            showToast(`调试: 跳过卡片追加 wsListEl=${!!wsListEl} newId=${newId}`);
           }
         }
       } catch { showToast(sbNameMode === 'rename' ? '重命名失败' : '创建失败'); }
@@ -1954,7 +1961,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
     };
     // 工作区卡片创建（复用 loadWorkspaceList 和创建后追加，保证事件绑定一致）
     const createWsCard = (id: string, name: string, state: string, rowsNow: string[]): HTMLDivElement | null => {
-      if (!wsListEl) return null;
+      if (!wsListEl) { showToast('调试: wsListEl 为空'); return null; }
       const iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5z"/><path d="M12 12v10"/><path d="M3 7l9 5 9-5"/></svg>';
       const item = document.createElement('div');
       item.className = 'ex-sandbox-ws-item';
