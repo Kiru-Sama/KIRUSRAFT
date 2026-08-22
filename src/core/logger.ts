@@ -29,7 +29,7 @@ export interface LogEntry {
 }
 
 /** 导出时间范围 */
-export type LogRange = 'today' | '3d' | 'all';
+export type LogRange = 'today' | '3d' | '7d' | 'all';
 
 const IDB_NAME = 'kirusraft-logs';
 const IDB_VERSION = 1;
@@ -61,10 +61,11 @@ export function renderEntry(e: LogEntry): string {
   return `[${ts}] ${ver}${e.level.toUpperCase().padEnd(5)} [${e.source}] ${e.message}`;
 }
 
-/** 按时间范围过滤（today=当天，3d=最近 72 小时，all=全部） */
+/** 按时间范围过滤（today=当天，3d=最近72小时，7d=最近7天，all=全部） */
 export function filterByRange(entries: LogEntry[], range: LogRange, now = Date.now()): LogEntry[] {
   if (range === 'all') return entries;
-  const cutoff = range === 'today' ? now - (now % 86400000) : now - 3 * 86400000;
+  const days = range === 'today' ? 0 : range === '3d' ? 3 : 7;
+  const cutoff = range === 'today' ? now - (now % 86400000) : now - days * 86400000;
   return entries.filter((e) => e.time >= cutoff);
 }
 

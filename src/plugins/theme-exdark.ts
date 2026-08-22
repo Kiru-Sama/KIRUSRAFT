@@ -1080,7 +1080,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
               <div class="ex-setting-row">
                 <span class="ex-label-strong">日志操作</span>
                 <div class="ex-log-actions">
-                  <span class="ex-logrange"><button type="button" class="ex-top-btn active">7天</button></span>
+                  <span class="ex-logrange">
+                    <button type="button" class="ex-top-btn" data-ex-log-range="today">今天</button>
+                    <button type="button" class="ex-top-btn" data-ex-log-range="3d">3天</button>
+                    <button type="button" class="ex-top-btn active" data-ex-log-range="7d">7天</button>
+                    <button type="button" class="ex-top-btn" data-ex-log-range="all">全部</button>
+                  </span>
                   <button type="button" class="ex-top-btn" data-ex="logCopy">复制</button>
                   <button type="button" class="ex-top-btn" data-ex="logExport">导出</button>
                   <button type="button" class="ex-top-btn" data-ex="logRefresh">刷新</button>
@@ -1330,8 +1335,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
   const logExportBtn = container.querySelector('[data-ex="logExport"]') as HTMLButtonElement;
   const logExpandBtn = container.querySelector('[data-ex="logExpand"]') as HTMLButtonElement;
   const logView = container.querySelector('[data-ex="logView"]') as HTMLElement;
-  /** 运行记录日志范围：固定保留最近 7 天（logger 轮转上限），无切换 */
-  const logRange: LogRange = 'all';
+  /** 运行记录日志范围：今天 / 3天 / 7天 / 全部 可切换（v0.0.96 起真切换，默认 7 天=轮转上限） */
+  let logRange: LogRange = '7d';
   const parallaxSlider = container.querySelector('[data-ex="parallaxSlider"]') as HTMLInputElement;
   const parallaxValueEl = container.querySelector('[data-ex="parallaxValue"]') as HTMLElement;
 
@@ -4340,14 +4345,23 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
       logger.clear();
       renderLogView();
     });
+    // v0.0.96：日志范围真切换（今天/3天/7天/全部），复制/导出/视图随范围走
+    const logRangeLabel = (r: LogRange): string => (r === 'today' ? '今日' : r === '3d' ? '最近3天' : r === '7d' ? '最近7天' : '全部');
+    container.querySelectorAll('[data-ex-log-range]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        logRange = (btn as HTMLElement).dataset.exLogRange as LogRange;
+        container.querySelectorAll('[data-ex-log-range]').forEach((b) => b.classList.toggle('active', b === btn));
+        renderLogView();
+      });
+    });
     logCopyBtn.addEventListener('click', () => {
       void logger.copy(logRange).then((ok) => {
-        showToast(ok ? '已复制最近 7 天日志到剪贴板' : '复制失败，请用导出下载文件');
+        showToast(ok ? `已复制${logRangeLabel(logRange)}日志到剪贴板` : '复制失败，请用导出下载文件');
       });
     });
     logExportBtn.addEventListener('click', () => {
       logger.download(logRange);
-      showToast('已导出最近 7 天日志文件');
+      showToast(`已导出${logRangeLabel(logRange)}日志文件`);
     });
 
     // 异常红点：有 FAILED 插件时更多按钮显示（点设置→插件管理查看）
