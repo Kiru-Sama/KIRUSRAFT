@@ -40,19 +40,26 @@ async function loadWorkspaces(): Promise<Workspace[]> {
   try {
     if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
       const { value } = await Preferences.get({ key: WS_KEY });
+      logger.info('workspace', `loadWorkspaces: Preferences 分支 value=${value?.length ?? 0} 字符`);
       return value ? JSON.parse(value) as Workspace[] : [];
     }
-  } catch {}
+  } catch (e) { logger.info('workspace', `loadWorkspaces: Preferences 异常 ${e instanceof Error ? e.message : String(e)}`); }
   try {
-    return JSON.parse(localStorage.getItem(WS_KEY) ?? '[]') as Workspace[];
+    const raw = localStorage.getItem(WS_KEY);
+    logger.info('workspace', `loadWorkspaces: localStorage 分支 raw=${raw?.length ?? 0} 字符`);
+    return raw ? JSON.parse(raw) as Workspace[] : [];
   } catch { return []; }
 }
 async function saveWorkspaces(ws: Workspace[]): Promise<void> {
   if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
-    await Preferences.set({ key: WS_KEY, value: JSON.stringify(ws) });
-    return;
+    try {
+      await Preferences.set({ key: WS_KEY, value: JSON.stringify(ws) });
+      logger.info('workspace', `saveWorkspaces: Preferences 成功 ${ws.length} 条`);
+      return;
+    } catch (e) { logger.info('workspace', `saveWorkspaces: Preferences 异常 ${e instanceof Error ? e.message : String(e)}`); }
   }
   localStorage.setItem(WS_KEY, JSON.stringify(ws));
+  logger.info('workspace', `saveWorkspaces: localStorage 写入 ${ws.length} 条`);
 }
 function genId(): string {
   return 'ws_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
