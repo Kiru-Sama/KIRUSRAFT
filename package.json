@@ -7,6 +7,7 @@
   "scripts": {
     "build:web": "esbuild src/index.ts --bundle --format=iife --outfile=www/kirusraft.js",
     "build": "npm run build:web",
+    "build:apk": "npm run build:web && npx cap sync android && node scripts/ensure-proot-plugin.cjs",
     "test": "vitest run --pool=threads",
     "serve": "npx serve www"
   },
