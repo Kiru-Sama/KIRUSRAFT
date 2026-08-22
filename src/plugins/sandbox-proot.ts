@@ -105,17 +105,16 @@ export function apply(ctx: Context): void {
       required: ['name'],
     },
     async execute(args) {
+      logger.info('workspace', `workspace_create execute 开始 name=${String(args.name ?? '').slice(0, 30)}`);
       const name = String(args.name ?? 'default').replace(/[^A-Za-z0-9._-]/g, '_');
       const ws: Workspace = { id: genId(), name, createdAt: Date.now(), rootfsInstalled: false };
       const proot = getProot();
+      logger.info('workspace', `workspace_create getProot=${proot ? '有' : '无'}`);
       if (proot) {
-        try {
-          const result = await proot.createWorkspace({ name });
-          if (result && result.id) ws.id = result.id;
-        } catch (e) {
-          logger.error('workspace', `createWorkspace 原生调用失败: ${e instanceof Error ? e.message : String(e)}`);
-          // 原生失败不改 ws.id，使用 genId 生成的 ID
-        }
+        // 不降级：原生创建必须真实成功，失败向上抛真实错误（nameOk catch 显示原因）
+        const result = await proot.createWorkspace({ name });
+        if (result && result.id) ws.id = result.id;
+        logger.info('workspace', `createWorkspace 原生成功 id=${ws.id}`);
       }
       const list = await loadWorkspaces();
       list.push(ws);
