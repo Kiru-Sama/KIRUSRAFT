@@ -11,7 +11,7 @@ import { migrateLegacySession } from './session';
 import type { Session, MessageNode } from './types';
 
 const DB_NAME = 'kirusraft';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export class StorageService extends Service {
   private db: Db;
@@ -31,6 +31,7 @@ export class StorageService extends Service {
           { name: 'byConversation', keyPath: 'conversationId' },
         ],
       },
+    { name: 'keyvalue', keyPath: 'key' },
     ]);
     // 打开失败时降级为内存模式（会话仅本次有效），不静默失效；2s 后重试一次（P2-18），
     // 成功则退出内存模式（后续读写走 IDB）
@@ -129,6 +130,22 @@ export class StorageService extends Service {
     await this.db.transaction(['conversations', 'messageNodes'], 'readwrite', (tx) => {
       tx.objectStore('conversations').clear();
       tx.objectStore('messageNodes').clear();
+    });
+  }
+
+  /** 通用键值读取（供插件存取工作区等非会话数据，IndexedDB 替代 localStorage/Preferences） */
+  async getItem<T>(key: string): Promise<T | undefined> {
+    await this.ready;
+    if (this.memoryFallback) return undefined;
+    return this.db.get<T>('keyvalue', key);
+  }
+
+  /** 通用键值写入 */
+  async setItem(key: string, value: unknown): Promise<void> {
+    await this.ready;
+    if (this.memoryFallback) return;
+    await this.db.transaction(['keyvalue'], 'readwrite', (tx) => {
+      tx.objectStore('keyvalue').put({ key, value });
     });
   }
 

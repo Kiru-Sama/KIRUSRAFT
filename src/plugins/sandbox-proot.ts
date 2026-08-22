@@ -10,10 +10,9 @@ import { Context } from '@deepseek-ai/cordis';
 import type { PluginManifest } from '../core/manifest';
 import type { UIMessagePart } from '../core/types';
 import { logger } from '../core/logger';
-import { Preferences } from '@capacitor/preferences';
 
 export const name = 'sandbox-proot';
-export const inject = ['tools'];
+export const inject = ['tools', 'storage'];
 
 export const manifest: PluginManifest = {
   name,
@@ -34,33 +33,6 @@ interface Workspace {
   rootfsUrl?: string;
 }
 
-const WS_KEY = 'kirusraft.sandbox.workspaces';
-
-async function loadWorkspaces(): Promise<Workspace[]> {
-  try {
-    if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
-      const { value } = await Preferences.get({ key: WS_KEY });
-      logger.info('workspace', `loadWorkspaces: Preferences 分支 value=${value?.length ?? 0} 字符`);
-      return value ? JSON.parse(value) as Workspace[] : [];
-    }
-  } catch (e) { logger.info('workspace', `loadWorkspaces: Preferences 异常 ${e instanceof Error ? e.message : String(e)}`); }
-  try {
-    const raw = localStorage.getItem(WS_KEY);
-    logger.info('workspace', `loadWorkspaces: localStorage 分支 raw=${raw?.length ?? 0} 字符`);
-    return raw ? JSON.parse(raw) as Workspace[] : [];
-  } catch { return []; }
-}
-async function saveWorkspaces(ws: Workspace[]): Promise<void> {
-  if (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()) {
-    try {
-      await Preferences.set({ key: WS_KEY, value: JSON.stringify(ws) });
-      logger.info('workspace', `saveWorkspaces: Preferences 成功 ${ws.length} 条`);
-      return;
-    } catch (e) { logger.info('workspace', `saveWorkspaces: Preferences 异常 ${e instanceof Error ? e.message : String(e)}`); }
-  }
-  localStorage.setItem(WS_KEY, JSON.stringify(ws));
-  logger.info('workspace', `saveWorkspaces: localStorage 写入 ${ws.length} 条`);
-}
 function genId(): string {
   return 'ws_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 }
@@ -97,6 +69,16 @@ function getProot(): ProotApi | undefined {
 
 // ---- 插件入口 ----
 export function apply(ctx: Context): void {
+  // IndexedDB 键值存储（替代 localStorage/Preferences，成熟方案）
+  const loadWorkspaces = async (): Promise<Workspace[]> => {
+    try {
+      const val = await ctx.storage.getItem<Workspace[]>('sandbox.workspaces');
+      return val ?? [];
+    } catch { return []; }
+  };
+  const saveWorkspaces = async (ws: Workspace[]): Promise<void> => {
+    await ctx.storage.setItem('sandbox.workspaces', ws);
+  };
   // ===== 工作区管理 =====
   ctx.tools.register(ctx, {
     name: 'workspace_create',
