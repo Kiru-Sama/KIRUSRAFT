@@ -140,12 +140,17 @@ export async function runAgentLoop(options: AgentLoopOptions, handlers: ChatStre
         const message = error instanceof Error ? error.message : String(error);
         input.push({ type: 'function_call_output', call_id: call.id, output: `工具执行错误: ${message}` });
         handlers.onToolDone?.({ name: call.name, output: `工具执行错误: ${message}`, callId: call.id });
+        // v0.0.94：工具执行出错，标记完成并返回，避免循环卡住
+        finishOnce();
+        handlers.onError(new Error(`工具执行错误: ${message}`));
+        return;
       }
     }
   }
 
   // maxSteps 耗尽仍未完成：给出明确提示
   if (!finished) {
+    finishOnce(); // 先触发 onDone，让调用方完成 usage 写入
     handlers.onError(new Error(`已达最大步数 ${maxSteps}，工具循环未完成`));
   }
 }

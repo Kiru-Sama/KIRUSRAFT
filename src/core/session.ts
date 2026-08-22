@@ -166,8 +166,9 @@ function limitRounds(messages: { role: string; content: ChatMessageContent }[], 
 
 /** 旧数据迁移：v0.0.64 及之前的 Session.node（单节点平铺整段历史）→ v0.0.65 节点链。
  *  把 node.messages 每条消息拆成独立节点（单候选 selectIndex=0），与 RikkaHub 退化形态天然兼容。幂等。 */
-export function migrateLegacySession(session: Session & { node?: MessageNode }): Session {
-  if (!session || session.nodes) return session as Session;
+export function migrateLegacySession(session: Session & { node?: MessageNode } | undefined): Session | undefined {
+  if (!session) return undefined;
+  if (session.nodes) return session as Session;
   if (!session.node || !Array.isArray(session.node.messages)) {
     // 无 node 也无 nodes：重建空链
     (session as Session).nodes = [];

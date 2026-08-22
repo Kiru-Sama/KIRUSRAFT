@@ -88,7 +88,14 @@ export class ConfigService extends Service {
   private load(namespace: string): Record<string, unknown> {
     try {
       const raw = localStorage.getItem(`kirusraft.config.${namespace}`);
-      if (raw) return JSON.parse(raw) as Record<string, unknown>;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        // v0.0.94：API Key 做 Base64 解码（非加密，仅防明文泄露）
+        if (namespace === 'profile' && typeof parsed.apiKey === 'string') {
+          try { parsed.apiKey = atob(parsed.apiKey); } catch { /* 兼容旧数据 */ }
+        }
+        return parsed;
+      }
     } catch {
       /* 忽略损坏配置 */
     }
@@ -97,7 +104,12 @@ export class ConfigService extends Service {
 
   private persist(namespace: string, value: Record<string, unknown>): void {
     try {
-      localStorage.setItem(`kirusraft.config.${namespace}`, JSON.stringify(value));
+      const stored = { ...value };
+      // v0.0.94：API Key 做 Base64 编码（非加密，仅防明文泄露）
+      if (namespace === 'profile' && typeof stored.apiKey === 'string') {
+        stored.apiKey = btoa(stored.apiKey);
+      }
+      localStorage.setItem(`kirusraft.config.${namespace}`, JSON.stringify(stored));
     } catch {
       /* 存储不可用时静默 */
     }

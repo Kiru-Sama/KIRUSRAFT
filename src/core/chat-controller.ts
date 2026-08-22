@@ -203,13 +203,16 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
   let saveQueue: Promise<void> = Promise.resolve();
   let firstSaveLogged = false;
   function saveSessionSafe(): void {
+    const currentSession = session; // 捕获当前引用，防止会话切换后覆盖新会话
+    const currentDisposed = disposed;
     saveQueue = saveQueue
       .then(() => {
+        if (currentDisposed || currentSession !== session) return; // 会话已切换或已卸载，跳过
         if (!firstSaveLogged) {
           firstSaveLogged = true;
           logger.info('storage', `会话持久化链路就绪（${session.id}）`);
         }
-        return ctx.storage.saveConversation(session);
+        return ctx.storage.saveConversation(currentSession);
       })
       .catch((error) => {
         logger.error('storage', `保存会话失败: ${String(error)}`);
@@ -1132,9 +1135,10 @@ export function createChatController(ctx: Context, els: ChatElements): ChatContr
           onDone: () => {
             els.status.textContent = '';
             // v0.0.84（主线 B）：本次请求 usage + 耗时写到最后 AI 消息（用量脚注）
+            // streamReplyAt：AI 候选在 nodeIndex 节点（共享链，未必是最后一个节点）
             if (reqInput > 0 || reqOutput > 0) {
-              const lastNode = session.nodes[session.nodes.length - 1];
-              const aiMsg = lastNode?.messages[lastNode?.selectIndex ?? 0];
+              const aiNode = session.nodes[nodeIndex];
+              const aiMsg = aiNode?.messages[aiNode?.selectIndex ?? 0];
               if (aiMsg) {
                 aiMsg.usage = { inputTokens: reqInput, outputTokens: reqOutput, totalTokens: reqInput + reqOutput, cacheInputTokens: reqCache || undefined };
                 aiMsg.durationSec = (Date.now() - startTime) / 1000;

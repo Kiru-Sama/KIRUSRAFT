@@ -73,7 +73,7 @@ export class StorageService extends Service {
   async listConversations(): Promise<Session[]> {
     await this.ready;
     if (this.memoryFallback) {
-      return [...this.memorySessions.values()].map((s) => migrateLegacySession(s)).sort((a, b) => b.createdAt - a.createdAt);
+      return [...this.memorySessions.values()].map((s) => migrateLegacySession(s)).filter(<T>(v: T): v is NonNullable<T> => v != null).sort((a, b) => b.createdAt - a.createdAt);
     }
     const sessions = await this.db.getAll<Session>('conversations');
     const withNodes = await Promise.all(sessions.map((s) => this.attachNodes(s)));
@@ -82,7 +82,11 @@ export class StorageService extends Service {
 
   async getConversation(id: string): Promise<Session | undefined> {
     await this.ready;
-    if (this.memoryFallback) return migrateLegacySession(this.memorySessions.get(id) as Session & { node?: MessageNode });
+    if (this.memoryFallback) {
+      const s = this.memorySessions.get(id);
+      if (!s) return undefined;
+      return migrateLegacySession(s) ?? (s as Session);
+    }
     const session = await this.db.get<Session>('conversations', id);
     if (!session) return undefined;
     return this.attachNodes(session);
@@ -91,6 +95,7 @@ export class StorageService extends Service {
   /** 把会话的 nodes 链从 messageNodes store 组装回来（按 nodeIndex 排序）；兼容旧数据（单节点平铺）迁移 */
   private async attachNodes(session: Session & { node?: MessageNode }): Promise<Session> {
     const migrated = migrateLegacySession(session);
+    if (!migrated) return session as Session;
     if (migrated.nodes) return migrated;
     const nodes = await this.db.getByIndex<MessageNode>('messageNodes', 'byConversation', session.id);
     migrated.nodes = nodes.sort((a, b) => a.nodeIndex - b.nodeIndex);

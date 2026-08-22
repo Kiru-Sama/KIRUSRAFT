@@ -67,6 +67,13 @@ function getProot(): ProotApi | undefined {
   }
 }
 
+// 路径安全函数：拒绝路径遍历（..）和 Windows 盘符
+function sanitizePath(p: string): string {
+  const n = p.replace(/\\/g, '/').replace(/\/+/g, '/');
+  if (n.includes('..') || /^[A-Za-z]:/.test(n)) throw new Error(`路径不合法: ${p}`);
+  return n;
+}
+
 // ---- 插件入口 ----
 export function apply(ctx: Context): void {
   // IndexedDB 键值存储（替代 localStorage/Preferences，成熟方案）
@@ -240,7 +247,7 @@ export function apply(ctx: Context): void {
     },
     async execute(args) {
       const id = String(args.workspaceId);
-      const path = String(args.path);
+      const path = sanitizePath(String(args.path));
       const proot = getProot();
       if (!proot) {
         return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 读取 ${id}:${path}\n（非 Android 环境）` }];
@@ -265,7 +272,7 @@ export function apply(ctx: Context): void {
     },
     async execute(args) {
       const id = String(args.workspaceId);
-      const path = String(args.path);
+      const path = sanitizePath(String(args.path));
       const content = String(args.content);
       const proot = getProot();
       if (!proot) {
@@ -289,7 +296,7 @@ export function apply(ctx: Context): void {
     },
     async execute(args) {
       const id = String(args.workspaceId);
-      const path = args.path ? String(args.path) : '/workspace';
+      const path = args.path ? sanitizePath(String(args.path)) : '/workspace';
       const proot = getProot();
       if (!proot) {
         return [{ type: 'text', text: isNative() ? '沙箱原生插件未加载（ProotPlugin），请重新构建' : `[沙箱模拟] 列出 ${id}:${path}\n（非 Android 环境）` }];
@@ -315,7 +322,7 @@ export function apply(ctx: Context): void {
     },
     async execute(args) {
       const id = String(args.workspaceId);
-      const path = String(args.path);
+      const path = sanitizePath(String(args.path));
       const proot = getProot();
       if (proot?.deleteFile) await proot.deleteFile({ workspaceId: id, path });
       else if (isNative()) return [{ type: 'text', text: '沙箱原生插件未加载（ProotPlugin），请重新构建' }];
@@ -347,6 +354,13 @@ export function apply(ctx: Context): void {
       const skill = String(args.skill);
       const skillArgs: Record<string, unknown> = {};
       try { Object.assign(skillArgs, JSON.parse(String(args.args ?? '{}'))); } catch { /* 忽略 */ }
+      // shell 转义：防止用户输入注入（单引号 -> 结束单引号+转义单引号+开始单引号）
+      const shEsc = (s: string): string => s.replace(/'/g, "'\\''");
+      const url = shEsc(String(skillArgs.url ?? ''));
+      const filename = shEsc(String(skillArgs.filename ?? 'download'));
+      const output = shEsc(String(skillArgs.output ?? 'archive.tar.gz'));
+      const target = shEsc(String(skillArgs.target ?? '.'));
+      const file = shEsc(String(skillArgs.file ?? 'archive.tar.gz'));
       // 技能模板：返回指令给 AI 让它按步骤执行
       const skillScripts: Record<string, string> = {
         install_python: `安装 Python 3 及相关工具到工作区 ${id}：
@@ -359,10 +373,10 @@ export function apply(ctx: Context): void {
 3. 统计代码行数、结构、依赖
 4. 输出分析报告`,
         fetch_web: `下载文件到工作区 ${id}：
-1. workspace_shell(workspaceId="${id}", command="cd /workspace && curl -sL '${skillArgs.url ?? ''}' -o '${skillArgs.filename ?? 'download'}'", timeout=60)
+1. workspace_shell(workspaceId="${id}", command="cd /workspace && curl -sL '${url}' -o '${filename}'", timeout=60)
 2. workspace_list_files(workspaceId="${id}", path="/workspace")`,
         compress: `压缩/解压文件到工作区 ${id}：
-${skillArgs.action === 'compress' ? `1. workspace_shell(workspaceId="${id}", command="cd /workspace && tar -czf ${skillArgs.output ?? 'archive.tar.gz'} ${skillArgs.target ?? '.'}", timeout=30)` : `1. workspace_shell(workspaceId="${id}", command="cd /workspace && tar -xzf ${skillArgs.file ?? 'archive.tar.gz'}", timeout=30)`}
+${skillArgs.action === 'compress' ? `1. workspace_shell(workspaceId="${id}", command="cd /workspace && tar -czf ${output} ${target}", timeout=30)` : `1. workspace_shell(workspaceId="${id}", command="cd /workspace && tar -xzf ${file}", timeout=30)`}
 2. workspace_list_files(workspaceId="${id}", path="/workspace")`,
       };
       const script = skillScripts[skill] ?? `未知技能：${skill}`;

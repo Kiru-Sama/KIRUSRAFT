@@ -131,14 +131,14 @@ describe('session 节点链会话状态机（v0.0.65 RikkaHub 消息树）', () 
         selectIndex: 1,
       },
     };
-    const migrated = migrateLegacySession(legacy as unknown as Session);
+    const migrated = migrateLegacySession(legacy as unknown as Session)!;
     expect(migrated.nodes).toHaveLength(2);
     expect(migrated.nodes[0].messages[0].id).toBe('m1');
     expect(migrated.nodes[1].messages[0].id).toBe('m2');
     expect(migrated.nodes[0].selectIndex).toBe(0);
     expect((migrated as Session & { node?: unknown }).node).toBeUndefined();
     // 幂等：再迁移一次不破坏
-    const again = migrateLegacySession(migrated);
+    const again = migrateLegacySession(migrated)!;
     expect(again.nodes).toHaveLength(2);
   });
 
