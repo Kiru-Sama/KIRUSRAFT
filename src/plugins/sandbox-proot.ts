@@ -79,14 +79,21 @@ export function apply(ctx: Context): void {
   logger.info('sandbox', 'sandbox-proot 插件 apply 执行');
   // IndexedDB 键值存储（替代 localStorage/Preferences，成熟方案）
   const loadWorkspaces = async (): Promise<Workspace[]> => {
+    logger.info('workspace', 'loadWorkspaces: 开始');
     try {
       const val = await ctx.storage.getItem<Workspace[]>('sandbox.workspaces');
+      logger.info('workspace', `loadWorkspaces: 完成 len=${Array.isArray(val) ? val.length : 'null'}`);
       return val ?? [];
-    } catch { return []; }
+    } catch (e) {
+      logger.error('workspace', `loadWorkspaces: 异常 ${e instanceof Error ? e.message : String(e)}`);
+      return [];
+    }
   };
   const saveWorkspaces = async (ws: Workspace[]): Promise<void> => {
+    logger.info('workspace', `saveWorkspaces: 开始 ${ws.length} 条`);
     try {
       await ctx.storage.setItem('sandbox.workspaces', ws);
+      logger.info('workspace', `saveWorkspaces: 完成 ${ws.length} 条`);
     } catch (e) {
       logger.error('workspace', `saveWorkspaces 失败: ${e instanceof Error ? e.message : String(e)}`);
       throw e;

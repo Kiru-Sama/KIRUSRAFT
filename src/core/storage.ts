@@ -140,18 +140,25 @@ export class StorageService extends Service {
 
   /** 通用键值读取（供插件存取工作区等非会话数据，IndexedDB 替代 localStorage/Preferences） */
   async getItem<T>(key: string): Promise<T | undefined> {
+    logger.info('storage', `getItem 开始 key=${key}`);
     await this.ready;
+    const dbReady = (this as unknown as { db: { db: unknown } }).db?.db ? '开' : '未开';
+    logger.info('storage', `getItem ready 完成 memoryFallback=${this.memoryFallback} db=${dbReady}`);
     if (this.memoryFallback) return undefined;
-    return this.db.get<T>('keyvalue', key);
+    const val = await this.db.get<T>('keyvalue', key);
+    logger.info('storage', `getItem 读取完成 key=${key} 值=${val === undefined ? '无' : JSON.stringify(val).slice(0, 60)}`);
+    return val;
   }
 
   /** 通用键值写入 */
   async setItem(key: string, value: unknown): Promise<void> {
+    logger.info('storage', `setItem 开始 key=${key}`);
     await this.ready;
     if (this.memoryFallback) return;
     await this.db.transaction(['keyvalue'], 'readwrite', (tx) => {
       tx.objectStore('keyvalue').put({ key, value });
     });
+    logger.info('storage', `setItem 完成 key=${key}`);
   }
 
   /** 全量导出（存档）：返回可序列化的会话数组（不含 apiKey 等敏感配置，config 走 localStorage 不带出） */
