@@ -84,7 +84,12 @@ export function apply(ctx: Context): void {
     } catch { return []; }
   };
   const saveWorkspaces = async (ws: Workspace[]): Promise<void> => {
-    await ctx.storage.setItem('sandbox.workspaces', ws);
+    try {
+      await ctx.storage.setItem('sandbox.workspaces', ws);
+    } catch (e) {
+      logger.error('workspace', `saveWorkspaces 失败: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
+    }
   };
   // ===== 工作区管理 =====
   ctx.tools.register(ctx, {
@@ -102,8 +107,13 @@ export function apply(ctx: Context): void {
       const ws: Workspace = { id: genId(), name, createdAt: Date.now(), rootfsInstalled: false };
       const proot = getProot();
       if (proot) {
-        const result = await proot.createWorkspace({ name });
-        if (result && result.id) ws.id = result.id;
+        try {
+          const result = await proot.createWorkspace({ name });
+          if (result && result.id) ws.id = result.id;
+        } catch (e) {
+          logger.error('workspace', `createWorkspace 原生调用失败: ${e instanceof Error ? e.message : String(e)}`);
+          // 原生失败不改 ws.id，使用 genId 生成的 ID
+        }
       }
       const list = await loadWorkspaces();
       list.push(ws);
