@@ -1898,8 +1898,18 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           await ctx.tools.execute('workspace_rename', { workspaceId: sbNameTargetId, name: v });
           showToast('已重命名');
         } else {
-          await ctx.tools.execute('workspace_create', { name: v });
+          const parts = await ctx.tools.execute('workspace_create', { name: v });
           showToast('已创建');
+          // 手动追加卡片到列表（不依赖 localStorage 刷新，避免环境差异导致不显示）
+          const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
+          const idMatch = text.match(/ID:\s*(\S+)/);
+          const newId = idMatch ? idMatch[1] : '';
+          if (wsListEl && newId) {
+            const empty = wsListEl.querySelector('[style*="text-align:center"]');
+            if (empty) empty.remove();
+            const card = createWsCard(newId, v, '', []);
+            if (card) wsListEl.appendChild(card);
+          }
         }
         void loadWorkspaceList();
       } catch { showToast(sbNameMode === 'rename' ? '重命名失败' : '创建失败'); }
@@ -1940,6 +1950,47 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
           if (sandboxWsId) void loadDetailFiles(sandboxWsId, currentFs, currentFsPath);
         }).catch(() => showToast('删除失败'));
       });
+    };
+    // 工作区卡片创建（复用 loadWorkspaceList 和创建后追加，保证事件绑定一致）
+    const createWsCard = (id: string, name: string, state: string, rowsNow: string[]): HTMLDivElement | null => {
+      if (!wsListEl) return null;
+      const iconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5z"/><path d="M12 12v10"/><path d="M3 7l9 5 9-5"/></svg>';
+      const item = document.createElement('div');
+      item.className = 'ex-sandbox-ws-item';
+      const stateLabel = state || '需安装';
+      const stateCls = state ? 'installed' : 'missing';
+      item.innerHTML = `<span class="ex-sandbox-ws-icon">${iconSvg}</span><span class="ex-sandbox-ws-main"><span class="ex-sandbox-ws-name">${esc(name)}</span><span class="ex-sandbox-ws-id">${esc(id)}</span></span><span class="ex-sandbox-ws-state ${stateCls}">${esc(stateLabel)}</span><button type="button" class="ex-sandbox-ws-menu" data-ex="ws-menu" title="更多">···</button>`;
+      item.addEventListener('click', (ev) => {
+        if ((ev.target as HTMLElement).closest('[data-ex="ws-menu"]')) return;
+        sandboxWsId = id; currentWsName = name; showPage(pageDetail);
+        if (detailTitle) detailTitle.textContent = name;
+        if (infoName) infoName.textContent = name;
+        if (infoId) infoId.textContent = id;
+        if (infoShell) infoShell.textContent = state || '未知';
+        if (rootfsState) { rootfsState.textContent = state || '未安装'; rootfsState.classList.toggle('installed', !!state); rootfsState.classList.toggle('missing', !state); if (rootfsInstall) rootfsInstall.textContent = state ? '重新安装' : '安装 rootfs'; }
+        if (tabBasic) tabBasic.hidden = false; if (tabFiles) tabFiles.hidden = true;
+        manage.querySelector('[data-ex="sb-tab-basic-btn"]')?.classList.add('active');
+        manage.querySelector('[data-ex="sb-tab-files-btn"]')?.classList.remove('active');
+        if (segFiles) segFiles.classList.add('active'); if (segRootfs) segRootfs.classList.remove('active');
+        currentFs = 'files'; currentFsPath = '/workspace';
+        void loadDetailFiles(id, 'files', '/workspace');
+        if (sandboxFileviewEl) sandboxFileviewEl.innerHTML = '<div style="font-size:11px;color:var(--ex-text3);padding:8px">点击文件查看/编辑内容</div>';
+      });
+      const menuBtn = item.querySelector('[data-ex="ws-menu"]') as HTMLButtonElement | null;
+      menuBtn?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pop = document.createElement('div'); pop.className = 'ex-sb-ws-menu-pop';
+        pop.innerHTML = '<button type="button" data-ex="ws-rename">✎ 重命名</button><button type="button" class="danger" data-ex="ws-delete">✕ 删除</button>';
+        const rect = menuBtn.getBoundingClientRect();
+        pop.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 90)}px`;
+        pop.style.left = `${Math.max(8, Math.min(rect.left - 100, window.innerWidth - 140))}px`;
+        document.body.appendChild(pop);
+        const close = (): void => pop.remove();
+        window.setTimeout(() => { document.addEventListener('click', close, { once: true }); }, 0);
+        pop.querySelector('[data-ex="ws-rename"]')?.addEventListener('click', () => { close(); openNameDialog('rename', id, name, rowsNow); });
+        pop.querySelector('[data-ex="ws-delete"]')?.addEventListener('click', () => { close(); sbDelTargetId = id; if (delDialog) delDialog.hidden = false; });
+      });
+      return item;
     };
     // Files/Rootfs 当前目录平铺加载（对齐 RikkaHub WorkspaceDetailPage Files tab：路径栏 + 平铺列表）
     const loadDetailFiles = async (wsId: string, fs: 'files' | 'rootfs', p: string): Promise<void> => {
