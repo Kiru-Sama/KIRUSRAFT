@@ -1897,10 +1897,12 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         if (sbNameMode === 'rename') {
           await ctx.tools.execute('workspace_rename', { workspaceId: sbNameTargetId, name: v });
           showToast('已重命名');
+          void loadWorkspaceList();
         } else {
           const parts = await ctx.tools.execute('workspace_create', { name: v });
           showToast('已创建');
           // 手动追加卡片到列表（不依赖 localStorage 刷新，避免环境差异导致不显示）
+          // 注意：不调用 loadWorkspaceList，因为它的 wsListEl.innerHTML='加载中...' 会清空刚追加的卡片
           const text = (parts ?? []).map((p) => (p.type === 'text' ? p.text : '')).join('\n');
           const idMatch = text.match(/ID:\s*(\S+)/);
           const newId = idMatch ? idMatch[1] : '';
@@ -1911,7 +1913,6 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
             if (card) wsListEl.appendChild(card);
           }
         }
-        void loadWorkspaceList();
       } catch { showToast(sbNameMode === 'rename' ? '重命名失败' : '创建失败'); }
     });
     nameCancel?.addEventListener('click', () => { if (nameDialog) nameDialog.hidden = true; });
