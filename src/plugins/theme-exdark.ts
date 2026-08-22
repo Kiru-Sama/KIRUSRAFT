@@ -2152,6 +2152,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         rootfsProgress.textContent = '安装完成';
         rootfsState.textContent = '已装 rootfs';
         rootfsState.classList.add('installed');
+        rootfsState.classList.remove('missing');
+        if (rootfsInstall) rootfsInstall.textContent = '重新安装';
       } catch {
         rootfsProgress.textContent = '安装失败';
       } finally {
