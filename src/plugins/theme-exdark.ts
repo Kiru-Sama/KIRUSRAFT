@@ -106,7 +106,7 @@ const STYLE = `
 .ex-sidebar-row .ex-btn-manage { flex-shrink:0; width:auto; padding:10px 12px; }
 /* ---- 侧边栏对话管理模式（v0.0.65：批量管理工具条 + 卡片 checkbox/×） ---- */
 .ex-manage-bar { display:flex; gap:6px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--ex-border); background:var(--ex-surface); flex-wrap:wrap; }
-.ex-manage-btn { background:var(--ex-surface2); border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:4px 8px; cursor:pointer; font-family:var(--ex-font); font-weight:bold; }
+.ex-manage-btn { background:var(--ex-surface2); border:1px solid var(--ex-border2); color:var(--ex-text2); font-size:10px; padding:4px 8px; cursor:pointer; font-family:var(--ex-font); font-weight:bold; touch-action:manipulation; }
 .ex-manage-btn:hover { background:var(--ex-accent); color:var(--ex-bg); }
 .ex-manage-btn.ex-manage-exit { border-color:var(--ex-danger); color:var(--ex-danger); }
 .ex-manage-btn.ex-manage-exit:hover { background:var(--ex-danger); color:#fff; }
@@ -678,7 +678,7 @@ input[type="range"].ex-style-slider::-webkit-slider-thumb:hover { background:var
 .ex-sb-path-up:hover { border-color:var(--ex-accent); color:var(--ex-accent); }
 .ex-sb-path { font-size:11px; color:var(--ex-text2); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* FAB（对齐 RikkaHub FloatingActionButton） */
-.ex-sb-fab { position:absolute; right:20px; bottom:calc(20px + env(safe-area-inset-bottom,0px)); width:48px; height:48px; border-radius:50%; background:var(--ex-accent); color:var(--ex-bg); border:none; font-size:22px; font-weight:900; cursor:pointer; touch-action:manipulation; box-shadow:0 3px 10px rgba(0,0,0,.35); z-index:10; }
+.ex-sb-fab { position:fixed; right:20px; bottom:calc(20px + env(safe-area-inset-bottom,0px)); width:48px; height:48px; border-radius:50%; background:var(--ex-accent); color:var(--ex-bg); border:none; font-size:22px; font-weight:900; cursor:pointer; touch-action:manipulation; box-shadow:0 3px 10px rgba(0,0,0,.35); z-index:5100; }
 .ex-sb-fab:hover { filter:brightness(1.1); }
 /* 工作区列表卡片（对齐 RikkaHub WorkspaceCard：图标+名称+状态+三点菜单） */
 .ex-sandbox-wslist { display:flex; flex-direction:column; gap:10px; }
@@ -1156,8 +1156,7 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         <div class="ex-sb-body">
           <div class="ex-sandbox-wslist" data-ex="sandbox-wslist">加载中...</div>
         </div>
-        <button type="button" class="ex-sb-fab" data-ex="sb-add" title="创建工作区">+</button>
-      </section>
+        </section>
       <!-- 页2：工作区详情 -->
       <section class="ex-sb-page" data-ex="sb-page-detail" hidden>
         <div class="ex-sb-topbar">
@@ -1261,6 +1260,8 @@ export function apply(ctx: Context, config: Record<string, unknown> = {}): void 
         </div>
       </div>
     </div>
+    <!-- FAB（工作区列表页右下角创建按钮，fixed 脱离页 stacking context，手机点击修复） -->
+    <button type="button" class="ex-sb-fab" data-ex="sb-add" title="创建工作区">+</button>
     <div class="ex-toast-container" data-ex="toast"></div>
     <!-- 会话长按二级菜单（置顶/分享/管理/删除/重新生成标题）：放在 .ex-app 外，避免 overflow:hidden 裁剪 -->
     <div class="ex-conv-menu" data-ex="conv-menu">
